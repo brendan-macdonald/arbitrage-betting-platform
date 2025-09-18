@@ -120,3 +120,20 @@
     @apply bg-background text-foreground;
   }
 }
+html, body { height: 100%; }
+
+body {
+  background-color: #fff; /* fallback */
+  background-attachment: fixed; /* prevents scrolling banding */
+  background-image:
+    radial-gradient(1200px 800px at 20% -15%, rgba(199,210,254,0.30), rgba(199,210,254,0.00) 70%),
+    radial-gradient(1200px 800px at 80% -10%, rgba(248,231,236,0.35), rgba(248,231,236,0.00) 72%),
+    linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  background-repeat: no-repeat;
+  background-size: cover, cover, 100% 100%;
+  background-position: center top, center top, center;
+}
+
+* {
+  scroll-behavior: smooth;
+}
