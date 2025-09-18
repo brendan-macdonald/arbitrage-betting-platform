@@ -47,7 +47,8 @@ function outcomeToTeam(o: Opportunity, outcome: "A" | "B"): string {
  * - cache: "no-store" so a page refresh always shows latest computed opportunities.
  */
 async function getOpportunities(): Promise<Opportunity[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/opportunities`, {
+  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+  const res = await fetch(`${base}/api/opportunities?minRoi=0.01`, {
     cache: "no-store",
   });
   if (!res.ok) return [];

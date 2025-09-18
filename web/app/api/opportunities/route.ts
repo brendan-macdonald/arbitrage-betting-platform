@@ -1,18 +1,21 @@
 /**
- * GET /api/opportunities
+ * GET /api/opportunities?minRoi=0.01
  *
- * For MVP we COMPUTE opportunities from raw odds at request time.
- * There is no "Opportunity" table yet — fewer moving parts while learning.
- * The UI shape stays identical to your stub for a zero-change frontend.
+ * - Computes 2-way arbitrage from raw odds at request time (no Opportunity table).
+ * - Optional query: minRoi (decimal) — e.g., 0.01 = 1% threshold.
+ * - Returns only opportunities with roi >= minRoi (default 0).
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { twoWayArbROI, type Opportunity, type Leg } from "@/lib/arbitrage";
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 0) Read threshold from query string. Defaults to 0 (show all arbs).
+  const url = new URL(request.url);
+  const minRoi = Number(url.searchParams.get("minRoi") ?? "0"); // e.g. 0.01 = 1%
+
   // 1) Load all ML markets with their odds and event info in ONE query
-  //    include: pulls in related rows so we can render cards immediately
   const markets = await prisma.market.findMany({
     where: { type: "ML" },
     include: {
@@ -25,15 +28,14 @@ export async function GET() {
   const results: Opportunity[] = [];
 
   for (const m of markets) {
-    // Split odds into A and B by outcome
     const A = m.odds.filter((o) => o.outcome === "A");
     const B = m.odds.filter((o) => o.outcome === "B");
 
-    // Cross-product of A and B: try every book pairing
     for (const ao of A) {
       for (const bo of B) {
-        const roi = twoWayArbROI(ao.decimal, bo.decimal); // math lives in lib/
-        if (roi <= 0) continue;
+        const roi = twoWayArbROI(ao.decimal, bo.decimal);
+        if (roi <= 0) continue;              // must be a real arb
+        if (roi < minRoi) continue;          // apply min ROI filter
 
         const legs: Leg[] = [
           { book: ao.sportsbook.name, outcome: "A", dec: ao.decimal },
@@ -54,7 +56,7 @@ export async function GET() {
     }
   }
 
-  // 3) Sort by ROI so the best opportunities show first
+  // 3) Sort best-first
   results.sort((x, y) => y.roi - x.roi);
 
   return NextResponse.json(results);
