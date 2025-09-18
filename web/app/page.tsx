@@ -1,40 +1,56 @@
 /**
- * This file renders the home page ("/").
- * - It is a "Server Component" in Next.js App Router.
- * - We fetch our API route right here on the server, then send HTML to the browser.
- *
- * Why do it this way for MVP?
- * - Super simple: no client-side data fetching needed
- * - SEO friendly and fast (HTML comes pre-rendered)
- * - Easy to swap API internals later (stub → DB) without changing this page
+ * Home page ("/")
+ * - Server Component (runs on the server)
+ * - Fetches computed arbitrage opportunities from our own API
+ * - Renders clean cards with: team to bet, book, American odds, decimal odds
  */
 
-// import the RefreshButton (client component)
 import { RefreshButton } from "@/components/RefreshButton";
+import { StakeSplit, type Opportunity as OppForSplit } from "@/components/StakeSplit";
 
 type Leg = { book: string; outcome: "A" | "B"; dec: number };
+
 type Opportunity = {
   id: string;
-  sport: string;
-  league: string;
-  startsAt: string; // ISO string
-  teamA: string;
-  teamB: string;
-  roi: number;      // e.g. 0.012 == 1.2%
-  legs: Leg[];
+  sport: string;        // e.g., "American Football"
+  league: string;       // e.g., "NCAAF"
+  startsAt: string;     // ISO string
+  teamA: string;        // we define A as away team in our adapter
+  teamB: string;        // we define B as home team in our adapter
+  roi: number;          // decimal (0.012 = 1.2%)
+  legs: Leg[];          // two legs (A on one book, B on another)
 };
 
 /**
- * Small helper to fetch from our own API.
- * - We disable caching so the page always reflects latest data on refresh.
+ * Convert decimal odds (math-friendly) → American odds (UX-friendly).
+ * - If decimal >= 2.0 → underdog → positive American (e.g., 2.21 → +121)
+ * - If decimal < 2.0  → favorite  → negative American (e.g., 1.87 → -115)
+ */
+function toAmerican(decimal: number): string {
+  if (decimal >= 2) {
+    return `+${Math.round((decimal - 1) * 100)}`;
+  }
+  return `${Math.round(-100 / (decimal - 1))}`;
+}
+
+/**
+ * Map leg.outcome ("A" | "B") → the actual team name on the card.
+ * We’re using the normalized convention from our adapter:
+ *   A = away team, B = home team
+ */
+function outcomeToTeam(o: Opportunity, outcome: "A" | "B"): string {
+  return outcome === "A" ? o.teamA : o.teamB;
+}
+
+/**
+ * Server-side fetch from our own API.
+ * - cache: "no-store" so a page refresh always shows latest computed opportunities.
  */
 async function getOpportunities(): Promise<Opportunity[]> {
   const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/opportunities`, {
     cache: "no-store",
   });
-  if (!res.ok) {
-    return [];
-  }
+  if (!res.ok) return [];
   return res.json();
 }
 
@@ -43,31 +59,29 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-6">
-      {/* Page header */}
       <header className="flex items-end justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Arbitrage Opportunities</h1>
           <p className="text-sm text-muted-foreground">
-            Live edges (now DB-backed) — mock refresh for demo
+            Live NCAAF (and more) — books in American odds, decimals for reference
           </p>
         </div>
-
-        {/*adds a client-side refresh action */}
         <RefreshButton />
       </header>
 
-      {/* Results grid */}
       <section className="grid grid-cols-1 gap-4">
         {opps.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            No opportunities yet. (Try clicking “Refresh odds”)
+            No opportunities yet. Try ingesting odds or refresh again.
           </p>
         )}
 
         {opps.map((o) => {
           const legs = o.legs as Leg[];
+
           return (
             <div key={o.id} className="rounded-2xl border bg-card shadow-sm p-5">
+              {/* Top row: event info + ROI */}
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-xs text-muted-foreground">
@@ -83,15 +97,30 @@ export default async function HomePage() {
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {legs.map((l, i) => (
-                  <div key={i} className="rounded-xl border p-3">
-                    <div className="text-xs text-muted-foreground">{l.book}</div>
-                    <div className="font-medium">Bet: {l.outcome}</div>
-                    <div className="text-sm">Decimal: {l.dec.toFixed(2)}</div>
-                  </div>
-                ))}
+              {/* Bottom row: each leg = which book, which team, American odds, decimal below */}
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {legs.map((l, i) => {
+                  const team = outcomeToTeam(o, l.outcome);
+                  const american = toAmerican(l.dec);
+
+                  return (
+                    <div key={i} className="rounded-xl border p-3">
+                      {/* Book name (source) */}
+                      <div className="text-xs text-muted-foreground">{l.book}</div>
+
+                      {/* The bet instruction (this is the key part you asked for) */}
+                      <div className="font-medium">Bet: {team} ML</div>
+
+                      {/* Show American odds big (what bettors expect on the book) */}
+                      <div className="text-lg font-semibold">{american}</div>
+
+                      {/* Decimal odds smaller for transparency/math cross-checks */}
+                      <div className="text-xs text-muted-foreground">(decimal {l.dec.toFixed(2)})</div>
+                    </div>
+                  );
+                })}
               </div>
+             <StakeSplit opp={o as OppForSplit} /> 
             </div>
           );
         })}
