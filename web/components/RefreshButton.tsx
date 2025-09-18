@@ -39,11 +39,12 @@ export function RefreshButton() {
 
   return (
     <button
-      onClick={handleClick}
-      disabled={isLoading}
-      className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm shadow-sm hover:bg-accent disabled:opacity-60"
-    >
-      {isLoading ? "Refreshing..." : "Refresh odds"}
+        onClick={handleClick}
+        disabled={isLoading}
+        className="inline-flex items-center gap-2 rounded-full border border-white/50 bg-white/60 px-5 py-2 text-sm shadow-sm backdrop-blur hover:bg-white/70 disabled:opacity-60 ring-1 ring-black/5 transition"
+        >
+        {isLoading ? "Refreshing..." : "Ingest odds"}
     </button>
+
   );
 }
