@@ -1,0 +1,63 @@
+// ------------------------------
+// Datasource & Generator
+// ------------------------------
+// - datasource: which DB and how to connect.
+// - generator: produces a TypeScript client you can import (type-safe!).
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ------------------------------
+// Domain models (MVP)
+// ------------------------------
+// We only model what's necessary for 2-way moneyline arbitrage:
+// Event -> Market(type="ML") -> Odds (per sportsbook, per outcome A|B)
+
+model Sportsbook {
+  id        String   @id @default(cuid())     // cuid = unique string id
+  name      String   @unique                  // one row per book name
+  url       String?                           // optional info
+  odds      Odds[]                            // backref to odds
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  sport     String                             // "NBA", "NFL", etc.
+  league    String?                            // ex: "NBA", "EPL"
+  startsAt  DateTime                           // tipoff
+  teamA     String
+  teamB     String
+  markets   Market[]                           // event can have multiple markets
+  createdAt DateTime @default(now())
+}
+
+model Market {
+  id        String  @id @default(cuid())
+  eventId   String
+  type      String                             // "ML" = moneyline
+  event     Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  odds      Odds[]                             // odds across books/outcomes
+}
+
+model Odds {
+  id           String     @id @default(cuid())
+  marketId     String
+  sportsbookId String
+  outcome      String                             // "A" | "B" (later maybe "DRAW")
+  decimal      Float                               // decimal odds (e.g. 2.10)
+  lastSeenAt   DateTime   @default(now())
+
+  market       Market     @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  sportsbook   Sportsbook @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
+
+  // Data quality: prevent duplicate rows for same market/book/outcome.
+  @@unique([marketId, sportsbookId, outcome])
+  @@index([marketId, sportsbookId])
+}
