@@ -12,23 +12,21 @@
 //          ROI = 1 - 0.9936 ≈ 0.0064 = 0.64% guaranteed profit.
 // ---------------------------------------------------------
 
+// lib/arbitrage.ts
+
 /**
- * Given two decimal odds (one for Team A, one for Team B),
- * calculate if an arbitrage exists.
- *
- * Formula:
- *   If (1/oddsA + 1/oddsB) < 1 → guaranteed profit.
- *   ROI = 1 - (1/oddsA + 1/oddsB)
- *
- * Example:
- *   oddsA = 2.08, oddsB = 1.90
- *   1/2.08 + 1/1.90 = 0.961 < 1
- *   ROI = 0.039 → 3.9% profit
+ * Two-way arbitrage ROI given decimal odds a and b.
+ * - Arbitrage exists if (1/a + 1/b) < 1
+ * - Stake fractions: stakeA = 1/a, stakeB = 1/b, total s = 1/a + 1/b
+ * - Guaranteed payout = 1, profit = 1 - s
+ * - ROI (on capital) = profit / s = (1 - s) / s
  */
-export function twoWayArbROI(decA: number, decB: number): number {
-  const invSum = 1 / decA + 1 / decB;
-  return invSum < 1 ? 1 - invSum : 0;
+export function twoWayArbROI(a: number, b: number): number {
+  const s = 1 / a + 1 / b;
+  if (s >= 1) return 0;
+  return (1 - s) / s;
 }
+
 
   /**
  * TypeScript "type" = documentation + safety.
