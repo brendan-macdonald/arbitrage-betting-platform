@@ -1,41 +1,60 @@
 /**
- * GET /api/opportunities?minRoi=0.01
- *
+ * GET /api/opportunities?minRoi=0.01&freshMins=60
  * - Computes 2-way arbitrage from raw odds at request time (no Opportunity table).
- * - Optional query: minRoi (decimal) — e.g., 0.01 = 1% threshold.
- * - Returns only opportunities with roi >= minRoi (default 0).
+ * - Accepts market type aliases (ML/H2H/h2h/Moneyline).
+ * - Accepts outcome aliases (A/B vs home/away).
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { twoWayArbROI, type Opportunity, type Leg } from "@/lib/arbitrage";
 
-export async function GET(request: Request) {
-  // 0) Read threshold from query string. Defaults to 0 (show all arbs).
-  const url = new URL(request.url);
-  const minRoi = Number(url.searchParams.get("minRoi") ?? "0"); // e.g. 0.01 = 1%
+// Normalize outcome labels coming from provider/DB
+function isOutcomeA(s: string) {
+  const v = s.toLowerCase();
+  return v === "a" || v === "away" || v === "visitor" || v === "teama";
+}
+function isOutcomeB(s: string) {
+  const v = s.toLowerCase();
+  return v === "b" || v === "home" || v === "favourite" || v === "favorite" || v === "teamb";
+}
 
-  // 1) Load all ML markets with their odds and event info in ONE query
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const minRoi = Number(url.searchParams.get("minRoi") ?? "0");
+  const freshMins = Number(url.searchParams.get("freshMins") ?? "15");
+  const FRESH_MS = freshMins * 60_000;
+  const now = Date.now();
+
+  // ✅ Accept common moneyline aliases
   const markets = await prisma.market.findMany({
-    where: { type: "ML" },
+    where: {
+      type: { in: ["ML", "H2H", "h2h", "moneyline", "Moneyline"] },
+    },
     include: {
       odds: { include: { sportsbook: true } },
       event: true,
     },
   });
 
-  // 2) Compute 2-way arbitrage across all (A odds) x (B odds) pairs
   const results: Opportunity[] = [];
 
   for (const m of markets) {
-    const A = m.odds.filter((o) => o.outcome === "A");
-    const B = m.odds.filter((o) => o.outcome === "B");
+    // Only keep fresh odds rows
+    const A = m.odds.filter(
+      (o) => isOutcomeA(o.outcome) && now - new Date(o.lastSeenAt).getTime() <= FRESH_MS
+    );
+    const B = m.odds.filter(
+      (o) => isOutcomeB(o.outcome) && now - new Date(o.lastSeenAt).getTime() <= FRESH_MS
+    );
 
     for (const ao of A) {
       for (const bo of B) {
+        // Different books only
+        if (ao.sportsbookId === bo.sportsbookId) continue;
+
         const roi = twoWayArbROI(ao.decimal, bo.decimal);
-        if (roi <= 0) continue;              // must be a real arb
-        if (roi < minRoi) continue;          // apply min ROI filter
+        if (roi <= 0 || roi < minRoi) continue;
 
         const legs: Leg[] = [
           { book: ao.sportsbook.name, outcome: "A", dec: ao.decimal },
@@ -56,8 +75,6 @@ export async function GET(request: Request) {
     }
   }
 
-  // 3) Sort best-first
   results.sort((x, y) => y.roi - x.roi);
-
   return NextResponse.json(results);
 }
