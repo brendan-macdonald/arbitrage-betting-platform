@@ -29,8 +29,6 @@ export async function GET(request: Request) {
   ]);
 
   const sampleMarkets = await prisma.market.findMany({
-    take: limit,
-    orderBy: { id: "asc" },
     include: {
       event: true,
       odds: { include: { sportsbook: true } },

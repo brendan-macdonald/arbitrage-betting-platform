@@ -23,6 +23,7 @@ async function getOrCreateEventAndMarket(e: NormalizedEvent) {
   // Try to find an existing event first:
   let event = await prisma.event.findFirst({
     where: {
+      sport: e.sport, // Store Odds API key for filtering
       league: e.league,
       teamA: e.teamA,
       teamB: e.teamB,
@@ -35,7 +36,7 @@ async function getOrCreateEventAndMarket(e: NormalizedEvent) {
     // Create event + ML market
     event = await prisma.event.create({
       data: {
-        sport: e.sport,
+        sport: e.sport, // Store Odds API key for filtering
         league: e.league,
         startsAt: new Date(e.startsAt),
         teamA: e.teamA,

@@ -1,127 +1,111 @@
 /**
  * Home page ("/")
- * - Server Component
- * - Fetches arbitrage opportunities (ROI ≥ 1%) from our API
- * - Glossy “pastel glass” cards + collapsible Stake Split panel
+ * - Server Component (runs on the server)
+ * - Reads sport/region from search params (region is mostly for the ingest button)
+ * - Fetches computed arbitrage opportunities filtered by sport
  */
 
-import { RefreshButton } from "@/components/RefreshButton";
+import Filters from "@/components/Filters";
+import { RefreshButton } from "@/components/RefreshButton"; // keep if you like
 import { StakeSplit, type Opportunity as OppForSplit } from "@/components/StakeSplit";
 
 type Leg = { book: string; outcome: "A" | "B"; dec: number };
-
 type Opportunity = {
   id: string;
-  sport: string;        // e.g., "American Football"
-  league: string;       // e.g., "NCAAF"
-  startsAt: string;     // ISO string
-  teamA: string;        // A = away (adapter)
-  teamB: string;        // B = home (adapter)
-  roi: number;          // decimal (0.012 = 1.2%)
-  legs: Leg[];          // two legs (A on one book, B on another)
+  sport: string;
+  league: string;
+  startsAt: string;
+  teamA: string;
+  teamB: string;
+  roi: number;
+  legs: Leg[];
 };
 
-/** Decimal → American odds (bettor-friendly) */
-function toAmerican(decimal: number): string {
-  if (decimal >= 2) return `+${Math.round((decimal - 1) * 100)}`;
-  return `${Math.round(-100 / (decimal - 1))}`;
-}
-
-/** Map outcome → team name (A = away, B = home) */
-function outcomeToTeam(o: Opportunity, outcome: "A" | "B"): string {
-  return outcome === "A" ? o.teamA : o.teamB;
-}
-
-/** Server-side fetch (no-store = fresh on each reload) */
-async function getOpportunities(): Promise<Opportunity[]> {
+async function getOpportunities(sportKey?: string): Promise<Opportunity[]> {
   const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-  // Only return opportunities with ROI ≥ 1%
-  const res = await fetch(`${base}/api/opportunities?minRoi=0.01`, { cache: "no-store" });
+  const params = new URLSearchParams({
+    minRoi: "0",           // true arbs only; change to "-0.01" for near-arbs
+    freshMins: "480",      // wide window so you see results after ingest
+    maxSum: "1",           // 1 = true arbs; try "1.005" for near-arbs
+  });
+  if (sportKey) params.set("sport", sportKey);
+
+  const res = await fetch(`${base}/api/opportunities?${params.toString()}`, {
+    cache: "no-store",
+  });
   if (!res.ok) return [];
   return res.json();
 }
 
-export default async function HomePage() {
-  const opps = await getOpportunities();
+export default async function Home({ searchParams }: { searchParams: Promise<{ sport?: string; region?: string }> }) {
+  const params = await searchParams;
+  const sportKey = params?.sport;
+  const opps = await getOpportunities(sportKey);
 
   return (
-    <main className="space-y-6">
-      {/* Header */}
+    <main className="mx-auto max-w-5xl p-6 space-y-6">
       <header className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Arbitrage Opportunities</h1>
-          <p className="text-sm text-slate-500">
-            ROI ≥ 1% • American odds prominent • decimals for reference
+        <div className="space-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight">Arbitrage Opportunities</h1>
+          <p className="text-sm text-muted-foreground">
+            Select a sport/region, ingest, and view true arbs (all books).
           </p>
+          {/* NEW: the tiny multi-sport control */}
+          <Filters />
         </div>
+        {/* Keep your manual refresh if you like (it just router.refresh()s) */}
         <RefreshButton />
       </header>
 
-      {/* Cards */}
-      <section className="grid grid-cols-1 gap-5">
+      <section className="grid grid-cols-1 gap-4">
         {opps.length === 0 && (
-          <p className="text-sm text-slate-500">
-            No opportunities at this threshold. Try ingesting odds or lowering the filter.
+          <p className="text-sm text-muted-foreground">
+            No opportunities yet for this sport. Try “Ingest now”, widen freshness, or switch sport.
           </p>
         )}
 
-        {opps.map((o) => {
+        {opps.slice(0, 25).map((o) => {
           const legs = o.legs as Leg[];
 
+          // helpers (same as before)
+          const toAmerican = (d: number) => (d >= 2 ? `+${Math.round((d - 1) * 100)}` : `${Math.round(-100 / (d - 1))}`);
+          const outcomeToTeam = (oo: Opportunity, out: "A" | "B") => (out === "A" ? oo.teamA : oo.teamB);
+
           return (
-            <div
-              key={o.id}
-              className="relative overflow-hidden rounded-3xl border border-white/60 bg-white/85 p-5 shadow-lg backdrop-blur-md ring-1 ring-black/5"
-            >
-              {/* Glossy sheen overlay */}
-              <div className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-b from-white/40 via-transparent to-transparent" />
-
-              {/* Card content */}
-              <div className="relative z-10">
-                {/* Top row: event info + ROI pill */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-xs text-slate-500">
-                      {o.league} • {new Date(o.startsAt).toLocaleString()}
-                    </div>
-                    <div className="mt-0.5 text-lg font-semibold tracking-tight">
-                      {o.teamA} <span className="text-slate-400">vs</span> {o.teamB}
-                    </div>
+            <div key={o.id} className="rounded-2xl border bg-white/80 shadow-sm p-5 backdrop-blur-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-muted-foreground">
+                    {o.league} • {new Date(o.startsAt).toLocaleString()}
                   </div>
-
-                  <div className="rounded-full bg-gradient-to-r from-indigo-100 to-pink-100 px-3 py-1 text-right shadow-sm ring-1 ring-black/5">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-500">ROI</div>
-                    <div className="text-lg font-semibold text-slate-900">
-                      {(o.roi * 100).toFixed(2)}%
-                    </div>
+                  <div className="text-lg font-medium">
+                    {o.teamA} vs {o.teamB}
                   </div>
                 </div>
-
-                {/* Legs grid */}
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {legs.map((l, i) => {
-                    const team = outcomeToTeam(o, l.outcome);
-                    const american = toAmerican(l.dec);
-                    return (
-                      <div
-                        key={i}
-                        className="relative overflow-hidden rounded-2xl border border-white/60 bg-white/90 p-3 shadow-sm backdrop-blur-sm ring-1 ring-black/5"
-                      >
-                        <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/30 via-transparent to-transparent" />
-                        <div className="relative z-10">
-                          <div className="text-xs text-slate-500">{l.book}</div>
-                          <div className="mt-0.5 font-medium">Bet: {team} ML</div>
-                          <div className="text-xl font-semibold">{american}</div>
-                          <div className="text-xs text-slate-500">(decimal {l.dec.toFixed(2)})</div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">ROI</div>
+                  <div className="text-2xl font-semibold">{(o.roi * 100).toFixed(2)}%</div>
                 </div>
-
-                {/* Collapsible stake split (only when ROI ≥ 1%) */}
-                {o.roi >= 0.01 && <StakeSplit opp={o as OppForSplit} />}
               </div>
+
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {legs.map((l, i) => {
+                  const team = outcomeToTeam(o, l.outcome);
+                  const american = toAmerican(l.dec);
+                  return (
+                    <div key={i} className="rounded-xl border p-3">
+                      <div className="text-xs text-muted-foreground">{l.book}</div>
+                      <div className="font-medium">Bet: {team} ML</div>
+                      <div className="text-lg font-semibold">{american}</div>
+                      <div className="text-xs text-muted-foreground">(decimal {l.dec.toFixed(2)})</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Optional stake calculator (you already have it) */}
+              {/* Show only for arbs; or gate behind a dropdown like before */}
+              {o.roi > 0 && <StakeSplit opp={o as OppForSplit} />}
             </div>
           );
         })}
