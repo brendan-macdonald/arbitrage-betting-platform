@@ -14,6 +14,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { type Opportunity, type Leg } from "@/lib/arbitrage";
+import fs from "fs/promises";
+import path from "path";
 
 function roiOnStake(a: number, b: number) {
   const s = 1 / a + 1 / b;             // implied prob sum
@@ -34,72 +36,108 @@ export async function GET(request: Request) {
   const FRESH_MS = freshMins * 60_000;
   const now = Date.now();
 
-  // Your debug showed type="ML" and outcomes "A"/"B"
-  const markets = await prisma.market.findMany({
-    where: {
-      type: "ML",
-      ...(sportKey
-        ? {
-            event: {
-              OR: [{ sport: sportKey }, { league: sportKey }],
-            },
-          }
-        : {}),
-    },
-    include: {
-      event: true,
-      odds: { include: { sportsbook: true } },
-    },
-    take: 100, // limit to 100 records for performance
-  });
+  // DEMO MODE LOGIC
+  const forceDemo = url.searchParams.get("demo") === "1";
+  const isDemoEnv = process.env.NEXT_PUBLIC_DEMO === "1";
+  let useDemo = forceDemo || isDemoEnv;
+  let demoReason = "";
 
-  const results: Opportunity[] = [];
+  // Try/catch for DB or upstream errors
+  try {
+    if (!useDemo) {
+      // Live DB logic
+      const markets = await prisma.market.findMany({
+        where: {
+          type: "ML",
+          ...(sportKey
+            ? {
+                event: {
+                  OR: [{ sport: sportKey }, { league: sportKey }],
+                },
+              }
+            : {}),
+        },
+        include: {
+          event: true,
+          odds: { include: { sportsbook: true } },
+        },
+        take: 100, // limit to 100 records for performance
+      });
 
-  for (const m of markets) {
-    // filter odds by freshness + optional book whitelist
-    const A = m.odds.filter(o => {
-      if (o.outcome !== "A") return false;
-      if (now - new Date(o.lastSeenAt).getTime() > FRESH_MS) return false;
-      if (bookWhitelist && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) return false;
-      return true;
-    });
+      const results: Opportunity[] = [];
 
-    const B = m.odds.filter(o => {
-      if (o.outcome !== "B") return false;
-      if (now - new Date(o.lastSeenAt).getTime() > FRESH_MS) return false;
-      if (bookWhitelist && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) return false;
-      return true;
-    });
+      for (const m of markets) {
+        // filter odds by freshness + optional book whitelist
+        const A = m.odds.filter(o => {
+          if (o.outcome !== "A") return false;
+          if (now - new Date(o.lastSeenAt).getTime() > FRESH_MS) return false;
+          if (bookWhitelist && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) return false;
+          return true;
+        });
 
-    for (const ao of A) {
-      for (const bo of B) {
-        if (ao.sportsbookId === bo.sportsbookId) continue;  // cross-book only
+        const B = m.odds.filter(o => {
+          if (o.outcome !== "B") return false;
+          if (now - new Date(o.lastSeenAt).getTime() > FRESH_MS) return false;
+          if (bookWhitelist && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) return false;
+          return true;
+        });
 
-        const sum = 1/ao.decimal + 1/bo.decimal;
-        if (sum > maxSum) continue;                          // allow near-arbs if you set >1
+        for (const ao of A) {
+          for (const bo of B) {
+            if (ao.sportsbookId === bo.sportsbookId) continue;  // cross-book only
 
-        const roi = roiOnStake(ao.decimal, bo.decimal);
+            const sum = 1/ao.decimal + 1/bo.decimal;
+            if (sum > maxSum) continue;                          // allow near-arbs if you set >1
+
+            const roi = roiOnStake(ao.decimal, bo.decimal);
   if (roi < 0.01) continue; // Only show arbs with ROI > 1%
 
-        const legs: Leg[] = [
-          { book: ao.sportsbook.name, outcome: "A", dec: ao.decimal },
-          { book: bo.sportsbook.name, outcome: "B", dec: bo.decimal },
-        ];
+            const legs: Leg[] = [
+              { book: ao.sportsbook.name, outcome: "A", dec: ao.decimal },
+              { book: bo.sportsbook.name, outcome: "B", dec: bo.decimal },
+            ];
 
-        results.push({
-          id: `${m.id}-${ao.sportsbookId}-${bo.sportsbookId}`,
-          sport: m.event.sport,
-          league: m.event.league ?? m.event.sport,
-          startsAt: m.event.startsAt.toISOString(),
-          teamA: m.event.teamA,
-          teamB: m.event.teamB,
-          roi,
-          legs,
-        });
+            results.push({
+              id: `${m.id}-${ao.sportsbookId}-${bo.sportsbookId}`,
+              sport: m.event.sport,
+              league: m.event.league ?? m.event.sport,
+              startsAt: m.event.startsAt.toISOString(),
+              teamA: m.event.teamA,
+              teamB: m.event.teamB,
+              roi,
+              legs,
+            });
+          }
+        }
       }
+
+      results.sort((x, y) => y.roi - x.roi);
+      return NextResponse.json(results);
+    }
+  } catch (err: any) {
+    // Check for upstream odds API errors
+    const msg = String(err?.message || err);
+    if (
+      msg.includes("401") ||
+      msg.includes("402") ||
+      msg.includes("OUT_OF_USAGE_CREDITS")
+    ) {
+      useDemo = true;
+      demoReason = `API error: ${msg}`;
+    } else {
+      throw err;
     }
   }
 
-  results.sort((x, y) => y.roi - x.roi);
-  return NextResponse.json(results);
+  // DEMO MODE: Return mock data
+  try {
+    const mockPath = path.join(process.cwd(), "app/data/mock-arbs.json");
+    const mockData = await fs.readFile(mockPath, "utf-8");
+    const mock = JSON.parse(mockData);
+    console.log(`[opportunities] DEMO MODE (${forceDemo ? "forced" : isDemoEnv ? "env" : demoReason || "fallback"})`);
+    return NextResponse.json(mock);
+  } catch (e) {
+    console.error("[opportunities] Failed to load mock-arbs.json", e);
+    return NextResponse.json([], { status: 200 });
+  }
 }

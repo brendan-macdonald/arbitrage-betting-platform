@@ -1,14 +1,14 @@
-/**
- * The Odds API adapter
- * - Fetches upcoming events + bookmaker prices for a sport/region/market
- * - Normalizes to a provider-agnostic shape the rest of the app understands
- *
- * Why an "adapter" file?
- * - Separation of concerns: HTTP & provider-specific JSON stays here.
- * - You can add more providers later by returning the same normalized shape.
- */
+// lib/oddsAdapters/theOddsApi.ts
+//
+// Adapter for The Odds API
+// - Handles HTTP requests and raw JSON shape from provider
+// - Normalizes events into provider-agnostic shape (NormalizedEvent)
+// - Supports optional commence_time filters to reduce API usage
+//
+// This file is isolated so that you can later add new providers
+// while keeping the rest of your ingest pipeline unchanged.
 
-type RawOddsApiEvent = {
+export type RawOddsApiEvent = {
   id: string;
   sport_key: string;
   sport_title: string;
@@ -19,33 +19,34 @@ type RawOddsApiEvent = {
     key: string;       // e.g., "draftkings"
     title: string;     // e.g., "DraftKings"
     markets: Array<{
-      key: string;     // "h2h" for moneyline
+      key: string;     // e.g., "h2h"
       outcomes: Array<{
         name: string;  // team name
-        price: number; // decimal odds from this API (nice!)
+        price: number; // decimal odds
       }>;
     }>;
   }>;
 };
 
 /**
- * Our normalized shape (what ingest.ts expects)
- * - One entry per "event"
- * - Each contains an array of "lines" across different bookmakers
+ * Normalized event shape used throughout our app.
+ * - One record per event
+ * - Each contains an array of "lines" (odds) across different books
  */
 export type NormalizedEvent = {
   league: string;       // e.g., "NBA"
   sport: string;        // e.g., "Basketball"
   startsAt: string;     // ISO string
-  teamA: string;        // pick one side deterministically
-  teamB: string;
+  teamA: string;        // deterministic ordering: away = A
+  teamB: string;        // home = B
   lines: Array<{
     book: string;       // e.g., "DraftKings"
-    outcome: "A" | "B"; // which side these odds correspond to
-    decimal: number;    // decimal odds
+    outcome: "A" | "B";
+    decimal: number;
   }>;
 };
 
+/** Helper: capitalize + tidy strings */
 function titleCase(input: string): string {
   return input
     .replace(/_/g, " ")
@@ -53,11 +54,12 @@ function titleCase(input: string): string {
 }
 
 /**
- * Map sport_title from API → our two fields (sport + league).
- * We keep it simple: for "Basketball (NBA)" → sport="Basketball", league="NBA"
+ * Map sport_title → sport + league fields.
+ * Examples:
+ *   "Basketball (NBA)" → { sport: "Basketball", league: "NBA" }
+ *   "Baseball" → { sport: "Baseball", league: "Baseball" }
  */
 function splitSportTitle(sportTitle: string): { sport: string; league: string } {
-  // Examples: "Basketball" (generic) or "Basketball (NBA)"
   const m = sportTitle.match(/^(.*?)\s*\((.*?)\)\s*$/);
   if (m) {
     return { sport: m[1].trim(), league: m[2].trim() };
@@ -65,17 +67,31 @@ function splitSportTitle(sportTitle: string): { sport: string; league: string } 
   return { sport: sportTitle.trim(), league: sportTitle.trim() };
 }
 
+/** Ensure format "YYYY-MM-DDTHH:MM:SSZ" (drop milliseconds) */
+function toIsoSeconds(input: string | Date): string {
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) throw new Error("Invalid date");
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 /**
- * Fetch raw data from The Odds API.
+ * Fetch odds from The Odds API and normalize them.
+ *
  * Docs: https://theoddsapi.com/
  *
- * NOTE: free plans have rate limits. Keep usage modest for MVP.
+ * Options:
+ * - sport: string (e.g., "basketball_nba")
+ * - region: string (e.g., "us")
+ * - market: string ("h2h", "spreads", "totals")
+ * - commenceTimeFrom / commenceTimeTo: ISO strings for windowing
  */
 export async function fetchTheOddsApi(options?: {
   apiKey?: string;
   sport?: string;
   region?: string;
-  market?: string; // "h2h" for moneyline
+  market?: string;
+  commenceTimeFrom?: string;
+  commenceTimeTo?: string;
 }): Promise<NormalizedEvent[]> {
   const apiKey = options?.apiKey ?? process.env.ODDS_API_KEY!;
   const sport  = options?.sport  ?? process.env.ODDS_API_SPORT ?? "basketball_nba";
@@ -87,25 +103,36 @@ export async function fetchTheOddsApi(options?: {
   url.searchParams.set("markets", market);
   url.searchParams.set("oddsFormat", "decimal");
   url.searchParams.set("dateFormat", "iso");
+
+  // ✅ Canonicalize to "YYYY-MM-DDTHH:MM:SSZ" (no milliseconds)
+  if (options?.commenceTimeFrom) {
+    const from = toIsoSeconds(options.commenceTimeFrom);
+    url.searchParams.set("commenceTimeFrom", from);
+    url.searchParams.set("commence_time_from", from);
+  }
+  if (options?.commenceTimeTo) {
+    const to = toIsoSeconds(options.commenceTimeTo);
+    url.searchParams.set("commenceTimeTo", to);
+    url.searchParams.set("commence_time_to", to);
+  }
+
   url.searchParams.set("apiKey", apiKey);
 
   const res = await fetch(url.toString(), { method: "GET" });
   if (!res.ok) {
-    // In production: handle 402/429 (quota/limit), 4xx errors, etc.
     const text = await res.text();
-    throw new Error(`TheOddsAPI error ${res.status}: ${text}`);
+    const err: any = new Error(`TheOddsAPI error ${res.status}: ${text}`);
+    (err.status = res.status);
+    throw err;
   }
 
   const raw: RawOddsApiEvent[] = await res.json();
-
-  // Normalize
   const normalized: NormalizedEvent[] = [];
 
   for (const ev of raw) {
     const { sport, league } = splitSportTitle(ev.sport_title || titleCase(ev.sport_key));
 
-    // Decide which team is A vs B. We fix ordering for deterministic IDs/joins.
-    // The API gives "home_team" and "away_team". We'll use away as teamA, home as teamB (arbitrary but consistent).
+    // Deterministic ordering: away = A, home = B
     const teamA = ev.away_team.trim();
     const teamB = ev.home_team.trim();
 
@@ -115,17 +142,14 @@ export async function fetchTheOddsApi(options?: {
       const ml = (book.markets ?? []).find((m) => m.key === "h2h");
       if (!ml) continue;
 
-      // Outcomes come labeled by team name; we map them to "A" or "B" by comparing names.
       for (const out of ml.outcomes ?? []) {
         const name = (out.name || "").trim();
-
         if (name === teamA) {
           lines.push({ book: book.title || book.key, outcome: "A", decimal: out.price });
         } else if (name === teamB) {
           lines.push({ book: book.title || book.key, outcome: "B", decimal: out.price });
-        } else {
-          // ignore lines for unrelated names (sometimes APIs include draw or typo cases)
         }
+        // ignore "draw" or unrelated outcomes
       }
     }
 
@@ -133,7 +157,7 @@ export async function fetchTheOddsApi(options?: {
       normalized.push({
         league,
         sport,
-        startsAt: ev.commence_time, // ISO
+        startsAt: ev.commence_time,
         teamA,
         teamB,
         lines,

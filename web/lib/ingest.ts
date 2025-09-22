@@ -3,12 +3,14 @@
  * - Takes normalized events (provider-agnostic shape)
  * - Ensures Event + Market("ML") + Sportsbook exist
  * - Upserts odds rows (unique by (marketId, sportsbookId, outcome))
+ * - NEW: Skips DB writes when the event's best prices haven't changed (hash guard)
  *
  * Why this layer?
  * - Keeps database writes separate from "where data came from".
  * - If you change providers or add more, you don't touch DB logic.
  */
 
+import { createHash } from "crypto";
 import { prisma } from "@/lib/db";
 import type { NormalizedEvent } from "@/lib/oddsAdapters/theOddsApi";
 
@@ -16,14 +18,14 @@ import type { NormalizedEvent } from "@/lib/oddsAdapters/theOddsApi";
  * Find or create the Event + ML Market for a (league, teams, start time).
  * We use a simple heuristic match:
  *  - exact team names
- *  - same league
- *  - starts within a small time window (if you want to be fancy later)
+ *  - same league & sport
+ *  - exact start time (you can widen to a window if needed)
  */
 async function getOrCreateEventAndMarket(e: NormalizedEvent) {
   // Try to find an existing event first:
   let event = await prisma.event.findFirst({
     where: {
-      sport: e.sport, // Store Odds API key for filtering
+      sport: e.sport,
       league: e.league,
       teamA: e.teamA,
       teamB: e.teamB,
@@ -36,7 +38,7 @@ async function getOrCreateEventAndMarket(e: NormalizedEvent) {
     // Create event + ML market
     event = await prisma.event.create({
       data: {
-        sport: e.sport, // Store Odds API key for filtering
+        sport: e.sport,
         league: e.league,
         startsAt: new Date(e.startsAt),
         teamA: e.teamA,
@@ -94,17 +96,81 @@ async function upsertOddsBatch(
   }
 }
 
+/** ---------- NEW: odds fingerprint helpers (hash guard) ---------- */
+
+/** Stable key for this event’s ML snapshot (does not depend on books present) */
+function fingerprintKey(e: NormalizedEvent, marketType: "ML" = "ML") {
+  // If you later store a provider id, you can add it here for even more stability.
+  return `${e.teamA}@${e.teamB}:${e.startsAt}:${e.league}:${e.sport}:${marketType}`;
+}
+
+/** Hash only the *best* A and *best* B decimal prices (fast + robust) */
+function computeBestPriceHash(e: NormalizedEvent): string {
+  let bestA = 0;
+  let bestB = 0;
+  for (const line of e.lines ?? []) {
+    const price = Number(line.decimal);
+    if (!isFinite(price) || price <= 1) continue;
+    if (line.outcome === "A") bestA = Math.max(bestA, price);
+    if (line.outcome === "B") bestB = Math.max(bestB, price);
+  }
+  const s = `A:${bestA}|B:${bestB}`;
+  return createHash("sha1").update(s).digest("hex");
+}
+
 /**
  * ingestNormalizedEvents
- * - The top-level function you'll call from an API route to save fresh odds.
+ * - Top-level writer with a "no-change" short-circuit:
+ *   1) Compute event fingerprint (key + best-price hash)
+ *   2) If hash unchanged in OddsFingerprint → skip DB writes
+ *   3) Else write odds and upsert new fingerprint
  */
 export async function ingestNormalizedEvents(events: NormalizedEvent[]) {
   let eventsTouched = 0;
   let oddsWritten = 0;
 
+  if (!Array.isArray(events) || events.length === 0) {
+    return { eventsTouched, oddsWritten };
+  }
+
+  // Prepare fingerprint lookups to avoid N roundtrips when possible
+  const keys = events.map((e) => fingerprintKey(e));
+  let existingMap = new Map<string, string>();
+  try {
+    const existing = await prisma.oddsFingerprint.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, hash: true },
+    });
+    existingMap = new Map(existing.map((r) => [r.key, r.hash]));
+  } catch {
+    existingMap = new Map();
+  }
+
   for (const ev of events) {
+    const key = fingerprintKey(ev);
+    const newHash = computeBestPriceHash(ev);
+    const prevHash = existingMap.get(key);
+
+    // If best prices haven’t changed, skip DB writes for this event
+    if (prevHash && prevHash === newHash) {
+      continue;
+    }
+
+    // Write/update event, market, and odds
     const { market } = await getOrCreateEventAndMarket(ev);
     await upsertOddsBatch(market.id, ev.lines);
+
+    // Upsert fingerprint (ignore errors so a missing table won’t block ingest)
+    try {
+      await prisma.oddsFingerprint.upsert({
+        where: { key },
+        create: { key, hash: newHash },
+        update: { hash: newHash },
+      });
+    } catch {
+      /* noop */
+    }
+
     eventsTouched++;
     oddsWritten += ev.lines.length;
   }

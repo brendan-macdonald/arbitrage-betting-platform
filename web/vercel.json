@@ -1,0 +1,8 @@
+{
+  "cron": [
+    {
+      "path": "/api/ingest-all?hours=12&ttl=180&concurrency=2",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

@@ -61,3 +61,9 @@ model Odds {
   @@unique([marketId, sportsbookId, outcome])
   @@index([marketId, sportsbookId])
 }
+
+model OddsFingerprint {
+  key       String   @id   // stable event key (see fingerprintKey)
+  hash      String
+  updatedAt DateTime @updatedAt
+}

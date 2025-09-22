@@ -1,0 +1,41 @@
+[
+  {
+    "id": "demo-arb-1",
+    "sport": "americanfootball_ncaaf",
+    "league": "NCAAF",
+    "startsAt": "2025-09-27T16:00:00.000Z",
+    "teamA": "Alabama Crimson Tide (Demo)",
+    "teamB": "Georgia Bulldogs (Demo)",
+    "roi": 0.024,
+    "legs": [
+      { "book": "DraftKings", "outcome": "A", "dec": 2.25 },
+      { "book": "FanDuel", "outcome": "B", "dec": 2.25 }
+    ]
+  },
+  {
+    "id": "demo-arb-2",
+    "sport": "soccer_epl",
+    "league": "EPL",
+    "startsAt": "2025-09-28T18:00:00.000Z",
+    "teamA": "Manchester United (Demo)",
+    "teamB": "Liverpool (Demo)",
+    "roi": 0.012,
+    "legs": [
+      { "book": "Bet365", "outcome": "A", "dec": 2.1 },
+      { "book": "William Hill", "outcome": "B", "dec": 2.1 }
+    ]
+  },
+  {
+    "id": "demo-arb-3",
+    "sport": "basketball_nba",
+    "league": "NBA",
+    "startsAt": "2025-09-29T01:00:00.000Z",
+    "teamA": "Los Angeles Lakers (Demo)",
+    "teamB": "Boston Celtics (Demo)",
+    "roi": 0.008,
+    "legs": [
+      { "book": "Caesars", "outcome": "A", "dec": 2.05 },
+      { "book": "PointsBet", "outcome": "B", "dec": 2.05 }
+    ]
+  }
+]

@@ -6,7 +6,7 @@
  */
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 /**
  * A button that:
@@ -16,31 +16,30 @@ import { useRouter } from "next/navigation";
  */
 export function RefreshButton() {
   const router = useRouter();
+  const sp = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
+
+  // Get current sport/region/market from search params or defaults
+  const sport = sp.get("sport") || "americanfootball_ncaaf";
+  const region = sp.get("region") || "us";
+  const market = sp.get("market") || "h2h";
 
   async function handleClick() {
     try {
       setIsLoading(true);
-
-      // 1) Call the ingest API (this replaces the old /api/refresh-odds mock)
-      const res = await fetch(
-        "/api/ingest-odds?sport=americanfootball_ncaaf&region=us&market=h2h",
-        { method: "POST" }
-      );
-
+      // Use current filter values for ingest
+      const url = `/api/ingest-odds?sport=${encodeURIComponent(
+        sport
+      )}&region=${encodeURIComponent(region)}&market=${encodeURIComponent(market)}`;
+      const res = await fetch(url, { method: "POST" });
       if (!res.ok) {
         throw new Error(`Ingest failed: ${res.status}`);
       }
-
-      // Optional: inspect response (how many events/odds updated)
       const data = await res.json();
       console.log("Ingest result:", data);
-
-      // 2) Refresh the page so new odds show up in /api/opportunities
       router.refresh();
     } catch (e) {
       console.error("Failed to ingest odds:", e);
-      // In a real app, show a toast/banner
     } finally {
       setIsLoading(false);
     }
