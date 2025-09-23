@@ -92,6 +92,7 @@ export async function fetchTheOddsApi(options?: {
   market?: string;
   commenceTimeFrom?: string;
   commenceTimeTo?: string;
+  bookmakers?: string[];
 }): Promise<NormalizedEvent[]> {
   const apiKey = options?.apiKey ?? process.env.ODDS_API_KEY!;
   const sport  = options?.sport  ?? process.env.ODDS_API_SPORT ?? "basketball_nba";
@@ -117,20 +118,26 @@ export async function fetchTheOddsApi(options?: {
   }
 
   url.searchParams.set("apiKey", apiKey);
+  if (options?.bookmakers && options.bookmakers.length) {
+    url.searchParams.set("bookmakers", options.bookmakers.join(","));
+  }
 
   const res = await fetch(url.toString(), { method: "GET" });
   if (!res.ok) {
-    const text = await res.text();
-    const err: any = new Error(`TheOddsAPI error ${res.status}: ${text}`);
-    (err.status = res.status);
-    throw err;
+  const text = await res.text();
+  const err = new Error(`TheOddsAPI error ${res.status}: ${text}`) as Error & { status?: number };
+  err.status = res.status;
+  throw err;
   }
 
   const raw: RawOddsApiEvent[] = await res.json();
   const normalized: NormalizedEvent[] = [];
 
   for (const ev of raw) {
-    const { sport, league } = splitSportTitle(ev.sport_title || titleCase(ev.sport_key));
+    const { league } = splitSportTitle(ev.sport_title || titleCase(ev.sport_key));
+
+    // Always use sport_key for normalized sport field
+    const sport = ev.sport_key;
 
     // Deterministic ordering: away = A, home = B
     const teamA = ev.away_team.trim();

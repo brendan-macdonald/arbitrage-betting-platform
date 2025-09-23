@@ -19,14 +19,14 @@ import pLimit from "p-limit";
 import { createHash } from "crypto";
 import { fetchTheOddsApi, type NormalizedEvent } from "@/lib/oddsAdapters/theOddsApi";
 import { ingestNormalizedEvents } from "@/lib/ingest";
-import { SPORTS as ALL_SPORTS } from "@/lib/oddsAdapters/sports";
+import { SPORTS } from "@/lib/oddsAdapters/sports";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** ---------------- Tunables (cheap defaults) ---------------- */
-const REGION: "us" = "us";                 // US only (per your choice)
+const REGION = "us" as const;                 // US only (per your choice)
 const MARKETS = ["h2h"] as const;          // H2H only (moneyline) for arbs
 const DEFAULT_CONCURRENCY = 3;             // gentle parallelism
 const DEFAULT_TIME_WINDOW_HOURS = 12;      // fetch games in next N hours
@@ -51,7 +51,7 @@ async function withBackoff<T>(fn: () => Promise<T>, retries = MAX_RETRIES_429) {
   while (attempt <= retries) {
     try {
       return await fn();
-    } catch (e: any) {
+  } catch (e) {
       lastErr = e;
       const msg = String(e?.message || e);
       const is429 = e?.status === 429 || msg.includes("EXCEEDED_FREQ_LIMIT");
@@ -143,7 +143,7 @@ export async function POST(request: Request) {
   const CONCURRENCY =
     Number.isFinite(qpConcurrency) && qpConcurrency > 0 ? qpConcurrency : DEFAULT_CONCURRENCY;
 
-  const SPORTS = (qpSports?.length ? qpSports : ALL_SPORTS) as string[];
+  const sportsList = qpSports?.length ? qpSports : SPORTS;
 
   const now = new Date();
   const to = new Date(now.getTime() + TIME_WINDOW_HOURS * 60 * 60 * 1000);
@@ -171,7 +171,7 @@ export async function POST(request: Request) {
 
   const tasks: Array<Promise<void>> = [];
 
-  for (const sport of SPORTS) {
+  for (const sport of sportsList) {
     for (const market of MARKETS) {
       // TTL gate per (sport, region, market)
       if (TTL_SECONDS > 0 && shouldSkipByTTL(sport, REGION, market, TTL_SECONDS)) {
@@ -239,12 +239,13 @@ export async function POST(request: Request) {
             totalEvents += eventsTouched;
             totalOdds += oddsWritten;
             details.push({ sport, region: REGION, market, events: eventsTouched, odds: oddsWritten });
-          } catch (e: any) {
-            const msg = String(e?.message || e);
+          } catch (e) {
+            const err = e as any;
+            const msg = String(err?.message || err);
             errors.push(`${sport}/${REGION}/${market}: ${msg}`);
             details.push({ sport, region: REGION, market, events: 0, odds: 0, note: "error", error: msg.slice(0, 300) });
             // Stop batch if we ran out of credits
-            const is401Out = e?.status === 401 || msg.includes("OUT_OF_USAGE_CREDITS");
+            const is401Out = err?.status === 401 || msg.includes("OUT_OF_USAGE_CREDITS");
             if (is401Out) outOfCredits = true;
           }
         })
@@ -272,3 +273,4 @@ export async function POST(request: Request) {
     details,
   });
 }
+

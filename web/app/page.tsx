@@ -27,16 +27,23 @@ type Opportunity = {
 export default function Home() {
   // Initialize from URL, then localStorage, then defaults
   function getInitialFilters() {
-    const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-    const urlSports = params.get("sports");
-    const urlMarkets = params.get("markets");
-    const urlMinRoi = params.get("minRoi");
-    const sports = urlSports ? urlSports.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.sports") || "[]");
-    const markets = urlMarkets ? urlMarkets.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.markets") || '["h2h"]');
-    const minRoi = urlMinRoi ? Number(urlMinRoi) : Number(localStorage.getItem("prefs.minRoi") || 1.0);
-    return { sports, markets, minRoi };
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlSports = params.get("sports");
+      const urlMarkets = params.get("markets");
+      const urlMinRoi = params.get("minRoi");
+      const urlBookmakers = params.get("bookmakers");
+      const sports = urlSports ? urlSports.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.sports") || "[]");
+      const markets = urlMarkets ? urlMarkets.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.markets") || '["h2h"]');
+      const minRoi = urlMinRoi ? Number(urlMinRoi) : Number(localStorage.getItem("prefs.minRoi") || 0.0);
+      const bookmakers = urlBookmakers ? urlBookmakers.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.bookmakers") || "[]");
+      return { sports, markets, minRoi, bookmakers };
+    } else {
+      // On server, use safe defaults
+      return { sports: [], markets: ["h2h"], minRoi: 0.0, bookmakers: [] };
+    }
   }
-  const [{ sports, markets, minRoi }, setFilters] = useState(getInitialFilters);
+  const [{ sports, markets, minRoi, bookmakers }, setFilters] = useState(getInitialFilters);
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [demo, setDemo] = useState(false);
 
@@ -57,7 +64,9 @@ export default function Home() {
     const params = new URLSearchParams();
     if (sports.length) params.set("sports", sports.join(","));
     if (markets.length) params.set("markets", markets.join(","));
+    if (bookmakers.length) params.set("bookmakers", bookmakers.join(","));
     params.set("minRoi", String(minRoi));
+    params.set("freshMins", "10080"); // 7 days freshness window
     if (demo) params.set("demo", "1");
     // Remove legacy keys if present
     params.delete("sport");
@@ -65,7 +74,7 @@ export default function Home() {
     fetch(`/api/opportunities?${params.toString()}`, { cache: "no-store" })
       .then(res => res.ok ? res.json() : { opportunities: [] })
       .then(data => setOpps(data.opportunities || []));
-  }, [sports, markets, minRoi, demo]);
+  }, [sports, markets, minRoi, bookmakers, demo]);
 
   // Demo mode persistence (unchanged)
   useEffect(() => {
@@ -85,7 +94,7 @@ export default function Home() {
             Select a sport/region, ingest, and view true arbs (all books).
           </p>
           <Filters
-            onChange={({ sports, markets, minRoi }) => setFilters({ sports, markets, minRoi })}
+            onChange={({ sports, markets, minRoi, bookmakers }) => setFilters({ sports, markets, minRoi, bookmakers })}
           />
         </div>
         <div className="flex flex-col items-end gap-2">
