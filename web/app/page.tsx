@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Home page ("/")
  * - Server Component (runs on the server)
@@ -22,44 +24,50 @@ type Opportunity = {
   legs: Leg[];
 };
 
-async function getOpportunities(sportKey?: string): Promise<Opportunity[]> {
-  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-  const params = new URLSearchParams({
-    minRoi: "0",           // true arbs only; change to "-0.01" for near-arbs
-    freshMins: "480",      // wide window so you see results after ingest
-    maxSum: "1",           // 1 = true arbs; try "1.005" for near-arbs
-  });
-  if (sportKey) params.set("sport", sportKey);
-
-  const res = await fetch(`${base}/api/opportunities?${params.toString()}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
-function DemoModeToggle({ demo, setDemo }: { demo: boolean; setDemo: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center gap-2">
-      <label className="flex items-center cursor-pointer select-none">
-        <span className="mr-2 text-xs text-muted-foreground">Demo Mode</span>
-        <input
-          type="checkbox"
-          checked={demo}
-          onChange={e => setDemo(e.target.checked)}
-          className="accent-blue-500"
-        />
-      </label>
-      {demo && <span className="ml-1 px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-700">Demo</span>}
-    </div>
-  );
-}
-
-export default function Home({ searchParams }: { searchParams: Promise<{ sport?: string; region?: string }> }) {
-  const [demo, setDemo] = useState(false);
+export default function Home() {
+  // Initialize from URL, then localStorage, then defaults
+  function getInitialFilters() {
+    const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const urlSports = params.get("sports");
+    const urlMarkets = params.get("markets");
+    const urlMinRoi = params.get("minRoi");
+    const sports = urlSports ? urlSports.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.sports") || "[]");
+    const markets = urlMarkets ? urlMarkets.split(",").filter(Boolean) : JSON.parse(localStorage.getItem("prefs.markets") || '["h2h"]');
+    const minRoi = urlMinRoi ? Number(urlMinRoi) : Number(localStorage.getItem("prefs.minRoi") || 1.0);
+    return { sports, markets, minRoi };
+  }
+  const [{ sports, markets, minRoi }, setFilters] = useState(getInitialFilters);
   const [opps, setOpps] = useState<Opportunity[]>([]);
-  const sportKey = searchParams?.sport;
+  const [demo, setDemo] = useState(false);
 
+  // Sync filters to URL
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (sports.length) params.set("sports", sports.join(","));
+    if (markets.length) params.set("markets", markets.join(","));
+    if (minRoi !== 1.0) params.set("minRoi", String(minRoi));
+    // Remove legacy keys if present
+    params.delete("sport");
+    params.delete("market");
+    window.history.replaceState(null, "", `/?${params.toString()}`);
+  }, [sports, markets, minRoi]);
+
+  // Fetch opps on filter/demo change
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (sports.length) params.set("sports", sports.join(","));
+    if (markets.length) params.set("markets", markets.join(","));
+    params.set("minRoi", String(minRoi));
+    if (demo) params.set("demo", "1");
+    // Remove legacy keys if present
+    params.delete("sport");
+    params.delete("market");
+    fetch(`/api/opportunities?${params.toString()}`, { cache: "no-store" })
+      .then(res => res.ok ? res.json() : { opportunities: [] })
+      .then(data => setOpps(data.opportunities || []));
+  }, [sports, markets, minRoi, demo]);
+
+  // Demo mode persistence (unchanged)
   useEffect(() => {
     const stored = localStorage.getItem("demoMode");
     if (stored) setDemo(stored === "1");
@@ -67,19 +75,6 @@ export default function Home({ searchParams }: { searchParams: Promise<{ sport?:
   useEffect(() => {
     localStorage.setItem("demoMode", demo ? "1" : "0");
   }, [demo]);
-  useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-    const params = new URLSearchParams({
-      minRoi: "0",
-      freshMins: "480",
-      maxSum: "1",
-    });
-    if (sportKey) params.set("sport", sportKey);
-    if (demo) params.set("demo", "1");
-    fetch(`${base}/api/opportunities?${params.toString()}`, { cache: "no-store" })
-      .then(res => res.ok ? res.json() : [])
-      .then(setOpps);
-  }, [sportKey, demo]);
 
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-6">
@@ -89,7 +84,9 @@ export default function Home({ searchParams }: { searchParams: Promise<{ sport?:
           <p className="text-sm text-muted-foreground">
             Select a sport/region, ingest, and view true arbs (all books).
           </p>
-          <Filters />
+          <Filters
+            onChange={({ sports, markets, minRoi }) => setFilters({ sports, markets, minRoi })}
+          />
         </div>
         <div className="flex flex-col items-end gap-2">
           <DemoModeToggle demo={demo} setDemo={setDemo} />
@@ -99,7 +96,7 @@ export default function Home({ searchParams }: { searchParams: Promise<{ sport?:
       <section className="grid grid-cols-1 gap-4">
         {opps.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            No opportunities yet for this sport. Try “Ingest now”, widen freshness, or switch sport.
+            No opportunities yet for these filters. Try “Ingest now”, widen freshness, or switch sport.
           </p>
         )}
         {opps.slice(0, 25).map((o) => {
@@ -142,5 +139,23 @@ export default function Home({ searchParams }: { searchParams: Promise<{ sport?:
         })}
       </section>
     </main>
+  );
+}
+
+// Inline DemoModeToggle component
+function DemoModeToggle({ demo, setDemo }: { demo: boolean; setDemo: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="flex items-center cursor-pointer select-none">
+        <span className="mr-2 text-xs text-muted-foreground">Demo Mode</span>
+        <input
+          type="checkbox"
+          checked={demo}
+          onChange={e => setDemo(e.target.checked)}
+          className="accent-blue-500"
+        />
+      </label>
+      {demo && <span className="ml-1 px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-700">Demo</span>}
+    </div>
   );
 }
