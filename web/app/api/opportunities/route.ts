@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { type Opportunity, type Leg } from "@/lib/arbitrage";
+import { findMlArb, findSpreadArbs, findTotalArbs, stakeSplit } from "@/lib/arbitrage";
 import fs from "fs/promises";
 import path from "path";
 
@@ -18,51 +18,56 @@ function roiOnStake(a: number, b: number) {
 }
 
 export async function GET(request: Request) {
-  // Get all available bookmakers from DB for UI dropdown
+  // Parse filters
   const allBooks = await prisma.sportsbook.findMany({ select: { name: true } });
   const allBookmakers = allBooks.map(b => b.name).sort();
   const url = new URL(request.url);
   const sports = parseCommaList(url.searchParams.get("sports"));
-  const minRoi = parseNum(url.searchParams.get("minRoi"), 1.0) / 100; // percent to decimal
+  const useDemo = url.searchParams.get("demo") === "1";
+  // If minRoi is not provided, default to 0.0001 (0.01%) in demo mode, else 0.01 (1%)
+  const minRoi = parseNum(url.searchParams.get("minRoi"), useDemo ? 0.0001 : 0.01);
   const rawFreshMins = url.searchParams.get("freshMins");
   let freshMins = parseNum(rawFreshMins, 10080);
-  if (freshMins < 1) freshMins = 10080; // enforce minimum freshness window
-  // Accept both 'bookmakers' and legacy 'books' param
+  if (freshMins < 1) freshMins = 10080;
   const booksCsv = url.searchParams.get("books")?.trim() || "";
   const bookmakersCsv = url.searchParams.get("bookmakers")?.trim() || "";
   const bookWhitelist: string[] = (bookmakersCsv || booksCsv)
     ? (bookmakersCsv || booksCsv).split(",").map((b: string) => b.trim().toLowerCase()).filter(Boolean)
     : [];
   const markets: string[] = parseCommaList(url.searchParams.get("markets"));
-  const marketTypes: string[] = markets.length ? markets.map((m: string) => m.toLowerCase() === "h2h" ? "ML" : m) : ["ML"];
+  const marketTypes: string[] = markets.length
+    ? markets.map((m: string) => {
+        if (m.toLowerCase() === "h2h") return "ML";
+        if (m.toLowerCase() === "spread") return "SPREAD";
+        if (m.toLowerCase() === "totals") return "TOTAL";
+        return m.toUpperCase();
+      })
+    : ["ML"];
   const FRESH_MS = freshMins * 60_000;
   const now = Date.now();
 
   // DEMO MODE LOGIC
-  const forceDemo = url.searchParams.get("demo") === "1";
-  const isDemoEnv = process.env.NEXT_PUBLIC_DEMO === "1";
-  const useDemo = forceDemo || isDemoEnv;
-
+  // ...existing code...
   if (useDemo) {
     try {
       const mockPath = path.join(process.cwd(), "app/data/mock-arbs.json");
       const mockData = await fs.readFile(mockPath, "utf-8");
       let mock = JSON.parse(mockData);
-      interface MockOpp {
-        sport?: string;
-        roi?: number;
-        legs?: { book: string }[];
-      }
-      mock = mock.filter((opp: MockOpp) => {
-        // Filter by sports
+      const beforeCount = mock.length;
+      mock = mock.filter((opp: any) => {
         if (sports.length && !sports.includes(String(opp.sport))) return false;
-        // Filter by markets (always "ML" for demo)
-        if (marketTypes.length && !marketTypes.includes("ML")) return false;
-        // Filter by minRoi
+        if (marketTypes.length && opp.market && !marketTypes.includes(opp.market)) return false;
         if (typeof opp.roi === "number" && opp.roi < minRoi) return false;
+        if (bookWhitelist.length && !opp.legs?.some((l: any) => bookWhitelist.includes(l.book.toLowerCase()))) return false;
         return true;
-      });
-      // For demo, return all unique bookmakers in filtered mock data
+      }).map((opp: any) => ({
+        ...opp,
+        roiPct: typeof opp.roi === 'number' ? opp.roi * 100 : undefined
+      }));
+      const afterCount = mock.length;
+      // Debug logging
+      console.log("[DEMO MODE] Filters:", { sports, marketTypes, minRoi, bookWhitelist });
+      console.log(`[DEMO MODE] Mock opportunities before filter: ${beforeCount}, after filter: ${afterCount}`);
       const demoBookmakers = Array.from(new Set(
         mock.flatMap((opp: { legs?: { book: string }[] }) => (opp.legs?.map((l) => l.book) ?? []))
       )).sort();
@@ -77,30 +82,23 @@ export async function GET(request: Request) {
         },
         bookmakers: demoBookmakers,
       });
-    } catch {
+    } catch (err) {
+      console.error("[DEMO MODE] Error loading mock data:", err);
       const fallbackMarkets = Array.isArray(marketTypes) && marketTypes.length ? marketTypes : ["ML"];
       return NextResponse.json({ opportunities: [], summary: { sports, markets: fallbackMarkets, minRoi, count: 0, demo: true } }, { status: 200 });
     }
   }
 
-  // Normal mode: fetch events from DB
-  // Only ML markets for now
-  const marketTypeList = ["ML"];
-  // Build where clause for event filtering
+  // Query events in time window, include all market types
   const eventWhere: Record<string, unknown> = {};
-  if (sports.length) {
-    eventWhere.sport = { in: sports };
-  }
-  // Time window: only fetch events starting soon
+  if (sports.length) eventWhere.sport = { in: sports };
   const since = new Date(Date.now() - FRESH_MS);
   eventWhere.startsAt = { gte: since };
-
-  // Fetch events with ML markets and odds in one query
   const events = await prisma.event.findMany({
     where: eventWhere,
     include: {
       markets: {
-        where: { type: { in: marketTypeList } },
+        where: { type: { in: marketTypes } },
         include: {
           odds: { include: { sportsbook: true } },
         },
@@ -112,68 +110,102 @@ export async function GET(request: Request) {
   const totalEventsFetched = events.length;
   let totalEventsConsidered = 0;
   const results: Array<Record<string, unknown>> = [];
+  const uniqueBooks = new Set<string>();
   for (const ev of events) {
     for (const m of ev.markets) {
       totalEventsConsidered++;
-      console.log(`Event ${ev.id} Market ${m.id}: odds count = ${m.odds.length}`);
-      let bestA = null, bestB = null;
-      for (const o of m.odds) {
-        const oddsTime = new Date(o.lastSeenAt).getTime();
-        const ageMs = now - oddsTime;
-        const ageMin = ageMs / 60000;
-        console.log(`    Odds ${o.id} (${o.outcome}) from ${o.sportsbook.name}: lastSeenAt=${o.lastSeenAt}, oddsTime=${oddsTime}, ageMs=${ageMs}, ageMin=${ageMin}`);
-        if (ageMs > FRESH_MS) {
-          console.log(`      Skipping odds: too old (ageMin=${ageMin}, FRESH_MS=${FRESH_MS/60000} min)`);
-          continue;
-        }
-        if (bookWhitelist.length && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) {
-          console.log(`      Skipping odds: not in whitelist`);
-          continue;
-        }
-        if (o.outcome === "A" && (!bestA || o.decimal > bestA.decimal)) bestA = o;
-        if (o.outcome === "B" && (!bestB || o.decimal > bestB.decimal)) bestB = o;
-      }
-      if (!bestA || !bestB) {
-        console.log(`    Skipping market: missing bestA or bestB`);
-        continue;
-      }
-      if (bestA.sportsbookId === bestB.sportsbookId) {
-        console.log(`    Skipping market: bestA and bestB from same sportsbook (${bestA.sportsbook.name})`);
-        continue;
-      }
-      const roi = roiOnStake(bestA.decimal, bestB.decimal);
-      console.log(`    Market: bestA=${bestA.decimal} (${bestA.sportsbook.name}), bestB=${bestB.decimal} (${bestB.sportsbook.name}), ROI=${roi}`);
-      if (roi < minRoi) {
-        console.log(`    Skipping market: ROI ${roi} < minRoi ${minRoi}`);
-        continue;
-      }
-      const legs = [
-        { book: bestA.sportsbook.name, outcome: "A", dec: bestA.decimal },
-        { book: bestB.sportsbook.name, outcome: "B", dec: bestB.decimal },
-      ];
-      results.push({
-        id: `${m.id}-${bestA.sportsbookId}-${bestB.sportsbookId}`,
-        sport: ev.sport,
-        league: ev.league ?? ev.sport,
-        startsAt: ev.startsAt.toISOString(),
-        teamA: ev.teamA,
-        teamB: ev.teamB,
-        roi,
-        legs,
+      // Filter odds by freshness and book whitelist
+      const odds = m.odds.filter((o: any) => {
+        const ageMs = now - new Date(o.lastSeenAt).getTime();
+        if (ageMs > FRESH_MS) return false;
+        if (bookWhitelist.length && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) return false;
+        return true;
       });
+      odds.forEach((o: any) => uniqueBooks.add(o.sportsbook.name));
+      // ML
+      if (m.type === 'ML' && marketTypes.includes('ML')) {
+        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, outcome: o.outcome, decimal: o.decimal }));
+        // Debug log: print lines for ML market
+        console.log(`[ARBITRAGE DEBUG] ML lines for event ${ev.teamA} vs ${ev.teamB}:`, lines);
+        const arb = findMlArb(lines);
+        if (arb) {
+          console.log(`[ARBITRAGE DEBUG] ML ROI calculation:`, {
+            bestA: arb.legs[0]?.dec,
+            bestB: arb.legs[1]?.dec,
+            roi: arb.roi
+          });
+        }
+        if (arb && arb.roi >= minRoi) {
+          results.push({
+            market: 'ML',
+            id: `${m.id}-ML`,
+            sport: ev.sport,
+            league: ev.league ?? ev.sport,
+            startsAt: ev.startsAt.toISOString(),
+            teamA: ev.teamA,
+            teamB: ev.teamB,
+            roiPct: arb.roi,
+            stake: stakeSplit(100, arb.legs[0].dec, arb.legs[1].dec),
+            legs: arb.legs,
+          });
+        }
+      }
+      // SPREAD
+      if (m.type === 'SPREAD' && marketTypes.includes('SPREAD')) {
+        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, market: 'SPREAD', outcome: o.outcome, decimal: o.decimal, line: o.line }));
+        for (const arb of findSpreadArbs(lines)) {
+          if (arb.roi >= minRoi) {
+            results.push({
+              market: 'SPREAD',
+              id: `${m.id}-SPREAD-${arb.line}`,
+              sport: ev.sport,
+              league: ev.league ?? ev.sport,
+              startsAt: ev.startsAt.toISOString(),
+              teamA: ev.teamA,
+              teamB: ev.teamB,
+              line: arb.line,
+              roiPct: arb.roi,
+              stake: stakeSplit(100, arb.legs[0].dec, arb.legs[1].dec),
+              legs: arb.legs,
+            });
+          }
+        }
+      }
+      // TOTAL
+      if (m.type === 'TOTAL' && marketTypes.includes('TOTAL')) {
+        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, market: 'TOTAL', outcome: o.outcome, decimal: o.decimal, line: o.line }));
+        for (const arb of findTotalArbs(lines)) {
+          if (arb.roi >= minRoi) {
+            results.push({
+              market: 'TOTAL',
+              id: `${m.id}-TOTAL-${arb.line}`,
+              sport: ev.sport,
+              league: ev.league ?? ev.sport,
+              startsAt: ev.startsAt.toISOString(),
+              teamA: ev.teamA,
+              teamB: ev.teamB,
+              line: arb.line,
+              roiPct: arb.roi,
+              stake: stakeSplit(100, arb.legs[0].dec, arb.legs[1].dec),
+              legs: arb.legs,
+            });
+          }
+        }
+      }
     }
   }
-  results.sort((x, y) => y.roi - x.roi);
+  results.sort((x, y) => (Number(y.roiPct) || 0) - (Number(x.roiPct) || 0));
   return NextResponse.json({
     opportunities: results,
     summary: {
       sports,
-      markets: marketTypeList,
+      markets: marketTypes,
       minRoi,
       count: results.length,
       totalEventsFetched,
       totalEventsConsidered,
       returned: results.length,
+      uniqueBooks: Array.from(uniqueBooks).sort(),
       demo: false,
     },
     bookmakers: allBookmakers,

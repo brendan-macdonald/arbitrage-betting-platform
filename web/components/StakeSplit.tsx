@@ -19,7 +19,9 @@ export type Opportunity = {
   teamA: string;
   teamB: string;
   roi: number;
-  legs: Leg[]; // expects two legs for this calculator
+  market?: "ML" | "SPREAD" | "TOTAL";
+  line?: number;
+  legs: Leg[];
 };
 
 // Decimal → American odds (UX-friendly)
@@ -37,51 +39,56 @@ export function StakeSplit({ opp, defaultOpen = false }: { opp: Opportunity; def
   // Total stake to split across the two legs
   const [stake, setStake] = useState<number>(100);
 
-  // Guard: only handle two-way arbs
+  // Use first two legs for split
   const legs = opp.legs.slice(0, 2);
   const [legA, legB] = legs;
 
+  // Market and line info
+  const market = opp.market || 'ML';
+  const line = typeof opp.line === 'number' ? opp.line : undefined;
+
+  // Bet label logic
+  function getBetLabel(leg: Leg) {
+    if (market === 'ML') {
+      return `Bet: ${outcomeToTeam(opp, leg.outcome as "A" | "B")} ML`;
+    } else if (market === 'SPREAD') {
+      return `Bet: ${outcomeToTeam(opp, leg.outcome as "A" | "B")}${typeof leg.line === 'number' ? ` ${leg.line > 0 ? `+${leg.line}` : leg.line}` : ''}`;
+    } else if (market === 'TOTAL') {
+      return `Bet: ${leg.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${leg.line}`;
+    }
+    return '';
+  }
+
+  // Calculation logic (same math, but always use opp.roi for display)
   const calc = useMemo(() => {
     if (!legA || !legB) return null;
-
     const dA = legA.dec;
     const dB = legB.dec;
-
-    // Arbitrage math
     const invSum = 1 / dA + 1 / dB;
-    const roi = invSum < 1 ? 1 - invSum : 0;
-
-    // Proportions to equalize payout
+    // Use ROI from opportunity for display, not recalculated
+    const roi = typeof opp.roi === 'number' ? opp.roi : (invSum < 1 ? 1 - invSum : 0);
     const pA = (1 / dA) / invSum;
     const pB = (1 / dB) / invSum;
-
-    // Dollar allocation
     const stakeA = stake * pA;
     const stakeB = stake * pB;
-
-    // Payouts + profit
     const payoutIfA = stakeA * dA;
     const payoutIfB = stakeB * dB;
     const profitA = payoutIfA - stake;
     const profitB = payoutIfB - stake;
-
+    const optimalProfit = Math.max(profitA, profitB);
     const $ = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const pct = (n: number) => (n * 100).toFixed(2) + "%";
-
-    return { invSum, roi, stakeA, stakeB, payoutIfA, payoutIfB, profitA, profitB, fmt: { $, pct } };
-  }, [stake, legA, legB, opp.id]);
+    return { invSum, roi, stakeA, stakeB, payoutIfA, payoutIfB, profitA, profitB, optimalProfit, fmt: { $, pct } };
+  }, [stake, legA, legB, opp.id, opp.roi]);
 
   if (!legA || !legB || !calc) return null;
-
-  const teamA = outcomeToTeam(opp, legA.outcome);
-  const teamB = outcomeToTeam(opp, legB.outcome);
 
   return (
     <details className="mt-3 rounded-xl border bg-muted/20" {...(defaultOpen ? { open: true } : {})}>
       {/* SUMMARY ROW (always visible) */}
       <summary className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-xl px-4 py-3">
         <div className="space-y-0.5">
-          <div className="text-sm font-medium">Stake split</div>
+          <div className="text-sm font-medium">Stake split ({market}{line !== undefined ? ` ${line}` : ''})</div>
           <div className="text-xs text-muted-foreground">
             Click to {defaultOpen ? "collapse" : "expand"}. {calc.roi > 0 ? `ROI ${calc.fmt.pct(calc.roi)}` : "No guaranteed profit"}
           </div>
@@ -107,7 +114,7 @@ export function StakeSplit({ opp, defaultOpen = false }: { opp: Opportunity; def
           <div className="space-y-1">
             <div className="text-sm font-medium">How it works</div>
             <div className="text-xs text-muted-foreground">
-              We split by inverse odds so the payout is the same either way.
+              We split by inverse odds to maximize profit. The optimal profit is shown below, which may differ depending on which leg wins.
             </div>
           </div>
           <label className="text-sm">
@@ -127,7 +134,7 @@ export function StakeSplit({ opp, defaultOpen = false }: { opp: Opportunity; def
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-lg border p-3">
             <div className="text-xs text-muted-foreground">{legA.book}</div>
-            <div className="font-medium">Bet: {teamA} ML</div>
+            <div className="font-medium">{getBetLabel(legA)}</div>
             <div className="text-lg font-semibold">{toAmerican(legA.dec)}</div>
             <div className="text-xs text-muted-foreground">(decimal {legA.dec.toFixed(2)})</div>
 
@@ -139,7 +146,7 @@ export function StakeSplit({ opp, defaultOpen = false }: { opp: Opportunity; def
 
           <div className="rounded-lg border p-3">
             <div className="text-xs text-muted-foreground">{legB.book}</div>
-            <div className="font-medium">Bet: {teamB} ML</div>
+            <div className="font-medium">{getBetLabel(legB)}</div>
             <div className="text-lg font-semibold">{toAmerican(legB.dec)}</div>
             <div className="text-xs text-muted-foreground">(decimal {legB.dec.toFixed(2)})</div>
 
@@ -155,7 +162,7 @@ export function StakeSplit({ opp, defaultOpen = false }: { opp: Opportunity; def
           <div className="text-sm">
             {calc.roi > 0 ? (
               <>
-                Guaranteed profit: <span className="font-semibold">${calc.fmt.$(calc.profitA)}</span>{" "}
+                Optimal profit: <span className="font-semibold">${calc.fmt.$(calc.optimalProfit)}</span>{" "}
                 (<span className="font-semibold">{calc.fmt.pct(calc.roi)}</span>)
               </>
             ) : (

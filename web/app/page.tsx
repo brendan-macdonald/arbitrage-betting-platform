@@ -11,8 +11,16 @@ import Filters from "@/components/Filters";
 import { RefreshButton } from "@/components/RefreshButton";
 import { StakeSplit, type Opportunity as OppForSplit } from "@/components/StakeSplit";
 import { useEffect, useState } from "react";
+import useSWR from "swr";
 
-type Leg = { book: string; outcome: "A" | "B"; dec: number };
+type Leg = {
+  book: string;
+  outcome: "A" | "B" | "OVER" | "UNDER";
+  dec: number;
+  line?: number;
+  market?: "ML" | "SPREAD" | "TOTAL";
+};
+
 type Opportunity = {
   id: string;
   sport: string;
@@ -20,7 +28,9 @@ type Opportunity = {
   startsAt: string;
   teamA: string;
   teamB: string;
-  roi: number;
+  roiPct: number;
+  market?: "ML" | "SPREAD" | "TOTAL";
+  line?: number;
   legs: Leg[];
 };
 
@@ -46,6 +56,8 @@ export default function Home() {
   const [{ sports, markets, minRoi, bookmakers }, setFilters] = useState(getInitialFilters);
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [demo, setDemo] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(Date.now());
+  const [paused, setPaused] = useState(false);
 
   // Sync filters to URL
   useEffect(() => {
@@ -59,22 +71,37 @@ export default function Home() {
     window.history.replaceState(null, "", `/?${params.toString()}`);
   }, [sports, markets, minRoi]);
 
-  // Fetch opps on filter/demo change
-  useEffect(() => {
+  // Build query string from filters
+  function getQuery() {
     const params = new URLSearchParams();
     if (sports.length) params.set("sports", sports.join(","));
     if (markets.length) params.set("markets", markets.join(","));
     if (bookmakers.length) params.set("bookmakers", bookmakers.join(","));
     params.set("minRoi", String(minRoi));
-    params.set("freshMins", "10080"); // 7 days freshness window
+    params.set("freshMins", "10080");
     if (demo) params.set("demo", "1");
-    // Remove legacy keys if present
-    params.delete("sport");
-    params.delete("market");
-    fetch(`/api/opportunities?${params.toString()}`, { cache: "no-store" })
-      .then(res => res.ok ? res.json() : { opportunities: [] })
-      .then(data => setOpps(data.opportunities || []));
-  }, [sports, markets, minRoi, bookmakers, demo]);
+    return `/api/opportunities?${params.toString()}`;
+  }
+
+  const { data, mutate } = useSWR(getQuery(), (url) => fetch(url, { cache: "no-store" }).then(res => res.json()), {
+    refreshInterval: paused ? 0 : (demo ? 30000 : 60000),
+    onSuccess: () => setLastUpdated(Date.now()),
+    revalidateOnFocus: true,
+  });
+
+  useEffect(() => {
+    function handleVisibility() {
+      const isPaused = document.visibilityState !== "visible";
+      setPaused(isPaused);
+      if (!isPaused) mutate();
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [mutate]);
+
+  useEffect(() => {
+    if (data?.opportunities) setOpps(data.opportunities);
+  }, [data]);
 
   // Demo mode persistence (unchanged)
   useEffect(() => {
@@ -96,6 +123,10 @@ export default function Home() {
           <Filters
             onChange={({ sports, markets, minRoi, bookmakers }) => setFilters({ sports, markets, minRoi, bookmakers })}
           />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+            Updated {Math.floor((Date.now() - lastUpdated) / 1000)} seconds ago.
+            {paused && <span className="px-2 py-0.5 rounded bg-yellow-100 text-yellow-700 font-semibold">Paused</span>}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <DemoModeToggle demo={demo} setDemo={setDemo} />
@@ -110,39 +141,58 @@ export default function Home() {
         )}
         {opps.slice(0, 25).map((o) => {
           const legs = o.legs as Leg[];
+          const market = o.market || 'ML';
+          const line = typeof o.line === 'number' ? o.line : undefined;
           const toAmerican = (d: number) => (d >= 2 ? `+${Math.round((d - 1) * 100)}` : `${Math.round(-100 / (d - 1))}`);
           const outcomeToTeam = (oo: Opportunity, out: "A" | "B") => (out === "A" ? oo.teamA : oo.teamB);
+          const marketLabel = market === 'ML' ? 'ML' : market === 'SPREAD' ? 'Spread' : 'Totals';
           return (
             <div key={o.id} className="rounded-2xl border bg-white/80 shadow-sm p-5 backdrop-blur-sm">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">{marketLabel}</span>
                     {o.league} • {new Date(o.startsAt).toLocaleString()}
                   </div>
-                  <div className="text-lg font-medium">
+                  <div className="text-lg font-medium flex items-center gap-2">
+                    {market === 'SPREAD' && line !== undefined ? (
+                      <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">{line > 0 ? `+${line}` : line}</span>
+                    ) : null}
+                    {market === 'TOTAL' && line !== undefined ? (
+                      <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">O/U {line}</span>
+                    ) : null}
                     {o.teamA} vs {o.teamB}
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right min-w-[80px]">
                   <div className="text-xs text-muted-foreground">ROI</div>
-                  <div className="text-2xl font-semibold">{(o.roi * 100).toFixed(2)}%</div>
+                  <div className="text-2xl font-semibold">
+                    {typeof o.roiPct === 'number' && isFinite(o.roiPct) ? `${o.roiPct.toFixed(2)}%` : '--'}
+                  </div>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {legs.map((l, i) => {
-                  const team = outcomeToTeam(o, l.outcome);
+                  let betLabel = '';
+                  if (market === 'ML') {
+                    betLabel = `Bet: ${outcomeToTeam(o, l.outcome as "A" | "B")} ML`;
+                  } else if (market === 'SPREAD') {
+                    betLabel = `Bet: ${outcomeToTeam(o, l.outcome as "A" | "B")}${typeof l.line === 'number' ? ` ${l.line > 0 ? `+${l.line}` : l.line}` : ''}`;
+                  } else if (market === 'TOTAL') {
+                    betLabel = `Bet: ${l.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${l.line}`;
+                  }
                   const american = toAmerican(l.dec);
                   return (
                     <div key={i} className="rounded-xl border p-3">
                       <div className="text-xs text-muted-foreground">{l.book}</div>
-                      <div className="font-medium">Bet: {team} ML</div>
+                      <div className="font-medium">{betLabel}</div>
                       <div className="text-lg font-semibold">{american}</div>
                       <div className="text-xs text-muted-foreground">(decimal {l.dec.toFixed(2)})</div>
                     </div>
                   );
                 })}
               </div>
-              {o.roi > 0 && <StakeSplit opp={o as OppForSplit} />}
+              {o.roiPct > 0 && <StakeSplit opp={o as OppForSplit} />}
             </div>
           );
         })}

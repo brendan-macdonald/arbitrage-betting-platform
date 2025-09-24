@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 /** ---------------- Tunables (cheap defaults) ---------------- */
 const REGION = "us" as const;                 // US only (per your choice)
-const MARKETS = ["h2h"] as const;          // H2H only (moneyline) for arbs
+const MARKETS = ["h2h", "spreads", "totals"] as const; // All supported markets
 const DEFAULT_CONCURRENCY = 3;             // gentle parallelism
 const DEFAULT_TIME_WINDOW_HOURS = 12;      // fetch games in next N hours
 const DEFAULT_TTL_SECONDS = 60;            // per-combo TTL (sport+region+market)
@@ -131,6 +131,8 @@ export async function POST(request: Request) {
   // -------- params for quick testing/tuning --------
   const url = new URL(request.url);
   const qpSports = url.searchParams.get("sports")?.split(",").filter(Boolean); // limit sports set
+  const qpMarkets = url.searchParams.get("markets")?.split(",").filter(Boolean);
+  const qpBookmakers = url.searchParams.get("bookmakers")?.split(",").filter(Boolean);
   const qpHours = Number(url.searchParams.get("hours"));
   const qpTTL = Number(url.searchParams.get("ttl"));
   const qpConcurrency = Number(url.searchParams.get("concurrency"));
@@ -144,6 +146,8 @@ export async function POST(request: Request) {
     Number.isFinite(qpConcurrency) && qpConcurrency > 0 ? qpConcurrency : DEFAULT_CONCURRENCY;
 
   const sportsList = qpSports?.length ? qpSports : SPORTS;
+  const marketsList = qpMarkets?.length ? qpMarkets : MARKETS;
+  const bookmakersList = qpBookmakers?.length ? qpBookmakers : (process.env.ODDS_API_BOOKMAKERS ? process.env.ODDS_API_BOOKMAKERS.split(",").map(b => b.trim()).filter(Boolean) : undefined);
 
   const now = new Date();
   const to = new Date(now.getTime() + TIME_WINDOW_HOURS * 60 * 60 * 1000);
@@ -172,7 +176,7 @@ export async function POST(request: Request) {
   const tasks: Array<Promise<void>> = [];
 
   for (const sport of sportsList) {
-    for (const market of MARKETS) {
+    for (const market of marketsList) {
       // TTL gate per (sport, region, market)
       if (TTL_SECONDS > 0 && shouldSkipByTTL(sport, REGION, market, TTL_SECONDS)) {
         details.push({ sport, region: REGION, market, events: 0, odds: 0, note: "ttl-skip" });
@@ -193,9 +197,9 @@ export async function POST(request: Request) {
                 sport,
                 region: REGION,
                 market,
-                // pass time window to adapter; we also filter below
                 commenceTimeFrom: fromISO,
                 commenceTimeTo: toISO,
+                bookmakers: bookmakersList,
               })
             );
 

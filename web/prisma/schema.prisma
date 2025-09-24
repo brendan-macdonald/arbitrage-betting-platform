@@ -14,10 +14,23 @@ generator client {
 }
 
 // ------------------------------
-// Domain models (MVP)
+// Domain models (Extended: ML, SPREAD, TOTAL)
 // ------------------------------
-// We only model what's necessary for 2-way moneyline arbitrage:
-// Event -> Market(type="ML") -> Odds (per sportsbook, per outcome A|B)
+// Supports 2-way moneyline, spreads, and totals:
+// Event -> Market(type=MarketType) -> Odds (per sportsbook, per outcome)
+
+enum MarketType {
+  ML
+  SPREAD
+  TOTAL
+}
+
+enum Outcome {
+  A
+  B
+  OVER
+  UNDER
+}
 
 model Sportsbook {
   id        String   @id @default(cuid())     // cuid = unique string id
@@ -36,30 +49,40 @@ model Event {
   teamB     String
   markets   Market[]                           // event can have multiple markets
   createdAt DateTime @default(now())
+
+  @@index([startsAt])
 }
 
 model Market {
-  id        String  @id @default(cuid())
+  id        String     @id @default(cuid())
   eventId   String
-  type      String                             // "ML" = moneyline
-  event     Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  odds      Odds[]                             // odds across books/outcomes
+  type      MarketType // ML, SPREAD, TOTAL
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  odds      Odds[]     
+
+  @@index([type])
+  @@index([type, eventId])
 }
 
 model Odds {
   id           String     @id @default(cuid())
   marketId     String
   sportsbookId String
-  outcome      String                             // "A" | "B" (later maybe "DRAW")
-  decimal      Float                               // decimal odds (e.g. 2.10)
+  outcome      Outcome                              // "A", "B", "OVER", "UNDER"
+  decimal      Float                                 // decimal odds (e.g. 2.10)
+  line         Float?                                // spread/total line (null for ML)
   lastSeenAt   DateTime   @default(now())
 
   market       Market     @relation(fields: [marketId], references: [id], onDelete: Cascade)
   sportsbook   Sportsbook @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
 
-  // Data quality: prevent duplicate rows for same market/book/outcome.
+  // Data quality: prevent duplicate rows for same market/book/outcome/line.
+  // For ML/H2H, line is always null, so use a separate unique constraint.
   @@unique([marketId, sportsbookId, outcome])
+  @@unique([marketId, sportsbookId, outcome, line])
   @@index([marketId, sportsbookId])
+  @@index([outcome, line])
+  @@index([marketId, sportsbookId, outcome, line])
 }
 
 model OddsFingerprint {

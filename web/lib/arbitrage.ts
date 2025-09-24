@@ -1,15 +1,5 @@
 // ---------------------------------------------------------
-// Function: twoWayArbROI
-// Purpose:  Calculates whether a 2-way arbitrage exists, and
-//           if so, returns the Return on Investment (ROI).
-//
-// Arbitrage math refresher:
-//   - In a 2-outcome market (like moneyline win/lose), odds can
-//     be converted into implied probabilities as 1 / odds.
-//   - If sum(1/oddsA + 1/oddsB) < 1, there’s an arbitrage (a guaranteed profit).
-//   - ROI = 1 - (sum of implied probabilities).
-// Example: oddsA=2.08, oddsB=1.95 → invSum ≈ 0.4808 + 0.5128 = 0.9936.
-//          ROI = 1 - 0.9936 ≈ 0.0064 = 0.64% guaranteed profit.
+// Arbitrage helpers for ML, SPREAD, TOTAL
 // ---------------------------------------------------------
 
 // lib/arbitrage.ts
@@ -21,10 +11,27 @@
  * - Guaranteed payout = 1, profit = 1 - s
  * - ROI (on capital) = profit / s = (1 - s) / s
  */
-export function twoWayArbROI(a: number, b: number): number {
+
+/**
+ * Calculate arbitrage ROI percent for two decimal odds.
+ * Returns percent (e.g. 1.2 for 1.2%).
+ */
+export function roiPct(a: number, b: number): number {
   const s = 1 / a + 1 / b;
   if (s >= 1) return 0;
-  return (1 - s) / s;
+  return (1 - s) / s * 100;
+}
+
+/**
+ * Calculate stake split for target total stake.
+ * Returns { stakeA, stakeB }.
+ */
+export function stakeSplit(target: number, a: number, b: number) {
+  const s = 1 / a + 1 / b;
+  return {
+    stakeA: target * (1 / a) / s,
+    stakeB: target * (1 / b) / s,
+  };
 }
 
 
@@ -43,9 +50,95 @@ export function twoWayArbROI(a: number, b: number): number {
 
 export type Leg = {
   book: string;            // sportsbook name
-  outcome: "A" | "B";      // which side of the bet
+  market?: 'ML' | 'SPREAD' | 'TOTAL';
+  outcome: "A" | "B" | "OVER" | "UNDER";
   dec: number;             // decimal odds
+  line?: number;           // for SPREAD/TOTAL
 };
+/**
+ * Find best ML arbitrage opportunity from lines.
+ * Returns {roi, legs} or null.
+ */
+export function findMlArb(lines: Array<{ book: string; outcome: 'A' | 'B'; decimal: number }>) {
+  type Line = { book: string; outcome: 'A' | 'B'; decimal: number };
+  let bestA: Line | null = null, bestB: Line | null = null;
+  for (const l of lines) {
+    if (l.outcome === 'A' && (!bestA || l.decimal > bestA.decimal)) bestA = l;
+    if (l.outcome === 'B' && (!bestB || l.decimal > bestB.decimal)) bestB = l;
+  }
+  if (!bestA || !bestB) return null;
+  const roi = roiPct(bestA.decimal, bestB.decimal);
+  if (roi <= 0) return null;
+  return {
+    roi,
+    legs: [
+      { book: bestA.book, market: 'ML', outcome: 'A', dec: bestA.decimal },
+      { book: bestB.book, market: 'ML', outcome: 'B', dec: bestB.decimal },
+    ],
+  };
+}
+
+/**
+ * Find all spread arbitrage opportunities from lines.
+ * Returns array of {roi, line, legs}.
+ */
+export function findSpreadArbs(lines: Array<{ book: string; market: 'SPREAD'; outcome: 'A' | 'B'; decimal: number; line: number }>) {
+  type SpreadLine = { book: string; market: 'SPREAD'; outcome: 'A' | 'B'; decimal: number; line: number };
+  const byLine = new Map<number, { A: SpreadLine[]; B: SpreadLine[] }>();
+  for (const l of lines) {
+    if (!byLine.has(l.line)) byLine.set(l.line, { A: [], B: [] });
+    byLine.get(l.line)![l.outcome].push(l);
+  }
+  const arbs = [];
+  for (const [line, { A, B }] of byLine.entries()) {
+    if (!A.length || !B.length) continue;
+    const bestA = A.reduce((a, b) => a.decimal > b.decimal ? a : b);
+    const bestB = B.reduce((a, b) => a.decimal > b.decimal ? a : b);
+    const roi = roiPct(bestA.decimal, bestB.decimal);
+    if (roi > 0) {
+      arbs.push({
+        roi,
+        line,
+        legs: [
+          { book: bestA.book, market: 'SPREAD', outcome: 'A', dec: bestA.decimal, line },
+          { book: bestB.book, market: 'SPREAD', outcome: 'B', dec: bestB.decimal, line },
+        ],
+      });
+    }
+  }
+  return arbs;
+}
+
+/**
+ * Find all total arbitrage opportunities from lines.
+ * Returns array of {roi, line, legs}.
+ */
+export function findTotalArbs(lines: Array<{ book: string; market: 'TOTAL'; outcome: 'OVER' | 'UNDER'; decimal: number; line: number }>) {
+  type TotalLine = { book: string; market: 'TOTAL'; outcome: 'OVER' | 'UNDER'; decimal: number; line: number };
+  const byLine = new Map<number, { OVER: TotalLine[]; UNDER: TotalLine[] }>();
+  for (const l of lines) {
+    if (!byLine.has(l.line)) byLine.set(l.line, { OVER: [], UNDER: [] });
+    byLine.get(l.line)![l.outcome].push(l);
+  }
+  const arbs = [];
+  for (const [line, { OVER, UNDER }] of byLine.entries()) {
+    if (!OVER.length || !UNDER.length) continue;
+    const bestO = OVER.reduce((a, b) => a.decimal > b.decimal ? a : b);
+    const bestU = UNDER.reduce((a, b) => a.decimal > b.decimal ? a : b);
+    const roi = roiPct(bestO.decimal, bestU.decimal);
+    if (roi > 0) {
+      arbs.push({
+        roi,
+        line,
+        legs: [
+          { book: bestO.book, market: 'TOTAL', outcome: 'OVER', dec: bestO.decimal, line },
+          { book: bestU.book, market: 'TOTAL', outcome: 'UNDER', dec: bestU.decimal, line },
+        ],
+      });
+    }
+  }
+  return arbs;
+}
 
 /**
  * A single arbitrage opportunity, which contains:
@@ -84,7 +177,7 @@ export function findStubOpportunities(): Opportunity[] {
   };
 
   // Run arb math: does this pair produce a positive ROI?
-  const roi = twoWayArbROI(ev.a[0].dec, ev.b[0].dec);
+  const roi = roiPct(ev.a[0].dec, ev.b[0].dec);
 
   // If yes → return a single Opportunity array.
   // If not → return empty array.

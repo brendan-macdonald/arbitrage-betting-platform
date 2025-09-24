@@ -21,8 +21,9 @@ export type RawOddsApiEvent = {
     markets: Array<{
       key: string;     // e.g., "h2h"
       outcomes: Array<{
-        name: string;  // team name
+        name: string;  // team name or 'Over'/'Under'
         price: number; // decimal odds
+        point?: number | string; // for spreads/totals
       }>;
     }>;
   }>;
@@ -33,17 +34,21 @@ export type RawOddsApiEvent = {
  * - One record per event
  * - Each contains an array of "lines" (odds) across different books
  */
+export type NormalizedLine = {
+  book: string;
+  market: 'ML' | 'SPREAD' | 'TOTAL';
+  outcome: 'A' | 'B' | 'OVER' | 'UNDER';
+  decimal: number;
+  line?: number; // for SPREAD/TOTAL
+};
+
 export type NormalizedEvent = {
   league: string;       // e.g., "NBA"
   sport: string;        // e.g., "Basketball"
   startsAt: string;     // ISO string
   teamA: string;        // deterministic ordering: away = A
   teamB: string;        // home = B
-  lines: Array<{
-    book: string;       // e.g., "DraftKings"
-    outcome: "A" | "B";
-    decimal: number;
-  }>;
+  lines: NormalizedLine[];
 };
 
 /** Helper: capitalize + tidy strings */
@@ -97,7 +102,8 @@ export async function fetchTheOddsApi(options?: {
   const apiKey = options?.apiKey ?? process.env.ODDS_API_KEY!;
   const sport  = options?.sport  ?? process.env.ODDS_API_SPORT ?? "basketball_nba";
   const region = options?.region ?? process.env.ODDS_API_REGION ?? "us";
-  const market = options?.market ?? process.env.ODDS_API_MARKET ?? "h2h";
+  // Default to all supported markets unless overridden
+  const market = options?.market ?? process.env.ODDS_API_MARKET ?? "h2h,spreads,totals";
 
   const url = new URL(`https://api.the-odds-api.com/v4/sports/${sport}/odds`);
   url.searchParams.set("regions", region);
@@ -124,10 +130,10 @@ export async function fetchTheOddsApi(options?: {
 
   const res = await fetch(url.toString(), { method: "GET" });
   if (!res.ok) {
-  const text = await res.text();
-  const err = new Error(`TheOddsAPI error ${res.status}: ${text}`) as Error & { status?: number };
-  err.status = res.status;
-  throw err;
+    const text = await res.text();
+    const err = new Error(`TheOddsAPI error ${res.status}: ${text}`) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
 
   const raw: RawOddsApiEvent[] = await res.json();
@@ -135,28 +141,52 @@ export async function fetchTheOddsApi(options?: {
 
   for (const ev of raw) {
     const { league } = splitSportTitle(ev.sport_title || titleCase(ev.sport_key));
-
-    // Always use sport_key for normalized sport field
     const sport = ev.sport_key;
-
-    // Deterministic ordering: away = A, home = B
     const teamA = ev.away_team.trim();
     const teamB = ev.home_team.trim();
 
-    const lines: NormalizedEvent["lines"] = [];
+    const lines: NormalizedLine[] = [];
 
     for (const book of ev.bookmakers ?? []) {
+      // Moneyline (h2h)
       const ml = (book.markets ?? []).find((m) => m.key === "h2h");
-      if (!ml) continue;
-
-      for (const out of ml.outcomes ?? []) {
-        const name = (out.name || "").trim();
-        if (name === teamA) {
-          lines.push({ book: book.title || book.key, outcome: "A", decimal: out.price });
-        } else if (name === teamB) {
-          lines.push({ book: book.title || book.key, outcome: "B", decimal: out.price });
+      if (ml) {
+        for (const out of ml.outcomes ?? []) {
+          const name = (out.name || "").trim();
+          if (name === teamA) {
+            lines.push({ book: book.title || book.key, market: 'ML', outcome: "A", decimal: out.price });
+          } else if (name === teamB) {
+            lines.push({ book: book.title || book.key, market: 'ML', outcome: "B", decimal: out.price });
+          }
         }
-        // ignore "draw" or unrelated outcomes
+      }
+
+      // Spreads
+      const spreads = (book.markets ?? []).find((m) => m.key === "spreads");
+      if (spreads) {
+        for (const out of spreads.outcomes ?? []) {
+          const name = (out.name || "").trim();
+          const point = typeof out.point === 'number' ? out.point : Number(out.point);
+          if (name === teamA) {
+            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "A", decimal: out.price, line: point });
+          } else if (name === teamB) {
+            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "B", decimal: out.price, line: point });
+          }
+        }
+      }
+
+      // Totals
+      const totals = (book.markets ?? []).find((m) => m.key === "totals");
+      if (totals) {
+        for (const out of totals.outcomes ?? []) {
+          const name = (out.name || "").trim().toLowerCase();
+          const point = typeof out.point === 'number' ? out.point : Number(out.point);
+          if (name === "over") {
+            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "OVER", decimal: out.price, line: point });
+          } else if (name === "under") {
+            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "UNDER", decimal: out.price, line: point });
+          }
+        }
       }
     }
 

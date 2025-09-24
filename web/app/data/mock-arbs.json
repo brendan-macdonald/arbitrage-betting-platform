@@ -7,6 +7,7 @@
     "teamA": "Alabama Crimson Tide (Demo)",
     "teamB": "Georgia Bulldogs (Demo)",
     "roi": 0.024,
+    "market": "ML",
     "legs": [
       { "book": "DraftKings", "outcome": "A", "dec": 2.25 },
       { "book": "FanDuel", "outcome": "B", "dec": 2.25 }
@@ -20,6 +21,7 @@
     "teamA": "Manchester United (Demo)",
     "teamB": "Liverpool (Demo)",
     "roi": 0.012,
+    "market": "ML",
     "legs": [
       { "book": "Bet365", "outcome": "A", "dec": 2.1 },
       { "book": "William Hill", "outcome": "B", "dec": 2.1 }
@@ -33,9 +35,118 @@
     "teamA": "Los Angeles Lakers (Demo)",
     "teamB": "Boston Celtics (Demo)",
     "roi": 0.008,
+    "market": "ML",
     "legs": [
       { "book": "Caesars", "outcome": "A", "dec": 2.05 },
       { "book": "PointsBet", "outcome": "B", "dec": 2.05 }
+    ]
+  },
+  {
+    "id": "demo-spread-1",
+    "market": "SPREAD",
+    "line": -2.5,
+    "sport": "basketball_nba",
+    "league": "NBA",
+    "startsAt": "2025-09-29T02:00:00.000Z",
+    "teamA": "Golden State Warriors (Demo)",
+    "teamB": "Miami Heat (Demo)",
+    "roi": 0.018,
+    "legs": [
+      {
+        "book": "DraftKings",
+        "outcome": "A",
+        "dec": 2.1,
+        "line": -2.5,
+        "market": "SPREAD"
+      },
+      {
+        "book": "FanDuel",
+        "outcome": "B",
+        "dec": 2.08,
+        "line": -2.5,
+        "market": "SPREAD"
+      }
+    ]
+  },
+  {
+    "id": "demo-spread-2",
+    "market": "SPREAD",
+    "line": -2.5,
+    "sport": "basketball_nba",
+    "league": "NBA",
+    "startsAt": "2025-09-29T03:00:00.000Z",
+    "teamA": "Brooklyn Nets (Demo)",
+    "teamB": "Chicago Bulls (Demo)",
+    "roi": 0.009,
+    "legs": [
+      {
+        "book": "BetMGM",
+        "outcome": "A",
+        "dec": 2.07,
+        "line": -2.5,
+        "market": "SPREAD"
+      },
+      {
+        "book": "Caesars",
+        "outcome": "B",
+        "dec": 2.06,
+        "line": -2.5,
+        "market": "SPREAD"
+      }
+    ]
+  },
+  {
+    "id": "demo-total-1",
+    "market": "TOTAL",
+    "line": 221.5,
+    "sport": "basketball_nba",
+    "league": "NBA",
+    "startsAt": "2025-09-29T04:00:00.000Z",
+    "teamA": "Dallas Mavericks (Demo)",
+    "teamB": "Houston Rockets (Demo)",
+    "roi": 0.012,
+    "legs": [
+      {
+        "book": "DraftKings",
+        "outcome": "OVER",
+        "dec": 2.09,
+        "line": 221.5,
+        "market": "TOTAL"
+      },
+      {
+        "book": "FanDuel",
+        "outcome": "UNDER",
+        "dec": 2.07,
+        "line": 221.5,
+        "market": "TOTAL"
+      }
+    ]
+  },
+  {
+    "id": "demo-total-2",
+    "market": "TOTAL",
+    "line": 221.5,
+    "sport": "basketball_nba",
+    "league": "NBA",
+    "startsAt": "2025-09-29T05:00:00.000Z",
+    "teamA": "Phoenix Suns (Demo)",
+    "teamB": "Utah Jazz (Demo)",
+    "roi": 0.008,
+    "legs": [
+      {
+        "book": "Bet365",
+        "outcome": "OVER",
+        "dec": 2.05,
+        "line": 221.5,
+        "market": "TOTAL"
+      },
+      {
+        "book": "PointsBet",
+        "outcome": "UNDER",
+        "dec": 2.04,
+        "line": 221.5,
+        "market": "TOTAL"
+      }
     ]
   }
 ]

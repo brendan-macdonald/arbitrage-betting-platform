@@ -66,7 +66,7 @@ async function getOrCreateEventAndMarket(e: NormalizedEvent) {
  */
 async function upsertOddsBatch(
   marketId: string,
-  lines: Array<{ book: string; outcome: "A" | "B"; decimal: number }>
+  lines: Array<{ book: string; outcome: "A" | "B" | "OVER" | "UNDER"; decimal: number; line?: number }>
 ) {
   for (const line of lines) {
     // Ensure sportsbook exists
@@ -76,23 +76,47 @@ async function upsertOddsBatch(
       create: { name: line.book },
     });
 
-    // Upsert odds for (market, book, outcome)
-    await prisma.odds.upsert({
-      where: {
-        marketId_sportsbookId_outcome: {
+    // Use correct upsert key for ML/H2H (line is null) vs. spreads/totals (line is number)
+    if (line.line === undefined || line.line === null) {
+      // ML/H2H odds
+      await prisma.odds.upsert({
+        where: {
+          marketId_sportsbookId_outcome: {
+            marketId,
+            sportsbookId: book.id,
+            outcome: line.outcome,
+          },
+        },
+        update: { decimal: line.decimal, lastSeenAt: new Date() },
+        create: {
           marketId,
           sportsbookId: book.id,
           outcome: line.outcome,
+          decimal: line.decimal,
+          line: null,
         },
-      },
-      update: { decimal: line.decimal, lastSeenAt: new Date() },
-      create: {
-        marketId,
-        sportsbookId: book.id,
-        outcome: line.outcome,
-        decimal: line.decimal,
-      },
-    });
+      });
+    } else {
+      // Spreads/totals odds
+      await prisma.odds.upsert({
+        where: {
+          marketId_sportsbookId_outcome_line: {
+            marketId,
+            sportsbookId: book.id,
+            outcome: line.outcome,
+            line: line.line,
+          },
+        },
+        update: { decimal: line.decimal, lastSeenAt: new Date() },
+        create: {
+          marketId,
+          sportsbookId: book.id,
+          outcome: line.outcome,
+          decimal: line.decimal,
+          line: line.line,
+        },
+      });
+    }
   }
 }
 
