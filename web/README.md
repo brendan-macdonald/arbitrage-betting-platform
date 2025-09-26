@@ -99,7 +99,7 @@ npm run dev
 }
 ```
 
-## Frontend Impact & Resume Value
+## Frontend Impact
 
 - Built a real-time, type-safe React UI for financial/odds data
 - Implemented persistent, debounced filters and infinite scroll

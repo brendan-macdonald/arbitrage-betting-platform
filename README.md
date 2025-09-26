@@ -105,7 +105,7 @@ npm run dev
 }
 ```
 
-## Impact & Resume Value
+## Impact
 
 - Reduced odds ingestion latency by 70% via optimized queries and in-memory caching
 - Designed scalable architecture supporting thousands of events per day
