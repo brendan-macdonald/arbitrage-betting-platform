@@ -1,6 +1,66 @@
+
 // ---------------------------------------------------------
 // Arbitrage helpers for ML, SPREAD, TOTAL
 // ---------------------------------------------------------
+
+// --- Shared types for API/UI ---
+export type MarketKind = 'ML' | 'SPREAD' | 'TOTAL';
+export type OutcomeKind = 'A' | 'B' | 'OVER' | 'UNDER';
+export type ArbLeg = { book: string; outcome: OutcomeKind; decimal: number; line?: number; market: MarketKind; };
+export type ArbPair = { market: MarketKind; line?: number; a: ArbLeg; b: ArbLeg; roi: number; };
+
+export function isExactLineMatch(market: MarketKind, l1?: number, l2?: number): boolean {
+  if (market === 'ML') return true;
+  return typeof l1 === 'number' && typeof l2 === 'number' && l1 === l2;
+}
+
+export function calcTwoWayRoi(a: number, b: number): number {
+  if (!a || !b || a <= 0 || b <= 0 || !isFinite(a) || !isFinite(b)) return 0;
+  const k = (1/a) + (1/b);
+  if (k >= 1) return 0;
+  const roi = (1/k) - 1;
+  return roi > 0 ? roi : 0;
+}
+
+export function findTwoWayArbs(legs: ArbLeg[]): ArbPair[] {
+  // Group by (market, lineKey)
+  const groups = new Map<string, { market: MarketKind; line?: number; legs: ArbLeg[] }>();
+  for (const leg of legs) {
+    const lineKey = leg.market === 'ML' ? 'ML' : String(leg.line);
+    const key = `${leg.market}|${lineKey}`;
+    if (!groups.has(key)) {
+      groups.set(key, { market: leg.market, line: leg.market === 'ML' ? undefined : leg.line, legs: [] });
+    }
+    groups.get(key)!.legs.push(leg);
+  }
+  const pairs: ArbPair[] = [];
+  for (const { market, line, legs: groupLegs } of groups.values()) {
+    if (market === 'ML') {
+      const a = groupLegs.filter(l => l.outcome === 'A').sort((x, y) => y.decimal - x.decimal)[0];
+      const b = groupLegs.filter(l => l.outcome === 'B').sort((x, y) => y.decimal - x.decimal)[0];
+      if (a && b) {
+        const roi = calcTwoWayRoi(a.decimal, b.decimal);
+        if (roi > 0) pairs.push({ market, line: undefined, a, b, roi });
+      }
+    } else if (market === 'SPREAD') {
+      const a = groupLegs.filter(l => l.outcome === 'A').sort((x, y) => y.decimal - x.decimal)[0];
+      const b = groupLegs.filter(l => l.outcome === 'B').sort((x, y) => y.decimal - x.decimal)[0];
+      if (a && b && isExactLineMatch(market, a.line, b.line)) {
+        const roi = calcTwoWayRoi(a.decimal, b.decimal);
+        if (roi > 0) pairs.push({ market, line, a, b, roi });
+      }
+    } else if (market === 'TOTAL') {
+      const over = groupLegs.filter(l => l.outcome === 'OVER').sort((x, y) => y.decimal - x.decimal)[0];
+      const under = groupLegs.filter(l => l.outcome === 'UNDER').sort((x, y) => y.decimal - x.decimal)[0];
+      if (over && under && isExactLineMatch(market, over.line, under.line)) {
+        const roi = calcTwoWayRoi(over.decimal, under.decimal);
+        if (roi > 0) pairs.push({ market, line, a: over, b: under, roi });
+      }
+    }
+  }
+  pairs.sort((x, y) => y.roi - x.roi);
+  return pairs;
+}
 
 // lib/arbitrage.ts
 

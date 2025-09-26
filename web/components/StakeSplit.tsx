@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from "react";
 
-export type Leg = { book: string; outcome: "A" | "B"; dec: number };
+export type Leg = { book: string; outcome: "A" | "B" | "OVER" | "UNDER"; dec: number; line?: number; market?: "ML" | "SPREAD" | "TOTAL" };
 export type Opportunity = {
   id: string;
   sport: string;
@@ -52,9 +52,11 @@ export function StakeSplit({ opp, defaultOpen = false }: { opp: Opportunity; def
     if (market === 'ML') {
       return `Bet: ${outcomeToTeam(opp, leg.outcome as "A" | "B")} ML`;
     } else if (market === 'SPREAD') {
-      return `Bet: ${outcomeToTeam(opp, leg.outcome as "A" | "B")}${typeof leg.line === 'number' ? ` ${leg.line > 0 ? `+${leg.line}` : leg.line}` : ''}`;
+      // Show line for each leg, stick to A/B mapping
+      return `Bet: ${outcomeToTeam(opp, leg.outcome as "A" | "B")} ${typeof leg.line === 'number' ? (leg.line > 0 ? `+${leg.line}` : leg.line) : ''}`;
     } else if (market === 'TOTAL') {
-      return `Bet: ${leg.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${leg.line}`;
+      // Show Over/Under plus the line
+      return `Bet: ${leg.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${typeof leg.line === 'number' ? leg.line : ''}`;
     }
     return '';
   }

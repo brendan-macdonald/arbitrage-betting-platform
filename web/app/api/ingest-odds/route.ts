@@ -1,3 +1,4 @@
+import type { MarketKind } from "@/lib/arbitrage";
 /**
  * POST /api/ingest-odds?sport=americanfootball_ncaaf&region=us&market=h2h
  * - If no query params are provided, it falls back to env defaults.
@@ -15,16 +16,23 @@ export async function POST(request: Request) {
   const sport  = url.searchParams.get("sport")  ?? undefined; // e.g., "americanfootball_ncaaf"
   const region = url.searchParams.get("region") ?? undefined; // e.g., "us"
   const market = url.searchParams.get("market") ?? undefined; // e.g., "h2h"
-  const markets = url.searchParams.get("markets")?.split(",").filter(Boolean);
+  const markets: MarketKind[] | undefined = url.searchParams.get("markets")?.split(",").filter(Boolean) as MarketKind[] | undefined;
   const bookmakers = url.searchParams.get("bookmakers")?.split(",").filter(Boolean) ?? (process.env.ODDS_API_BOOKMAKERS ? process.env.ODDS_API_BOOKMAKERS.split(",").map(b => b.trim()).filter(Boolean) : undefined);
 
     // 2) Fetch from provider with overrides (falls back to env if undefined)
-  const events = await fetchTheOddsApi({ sport, region, market: markets ? markets.join(",") : market, bookmakers });
+  const events = await fetchTheOddsApi({ sport, region, markets: markets ?? (market ? [market as MarketKind] : undefined), bookmakers });
 
     // 3) Upsert into DB (idempotent)
     const { eventsTouched, oddsWritten } = await ingestNormalizedEvents(events);
 
-    return NextResponse.json({ ok: true, sport: sport ?? process.env.ODDS_API_SPORT, eventsTouched, oddsWritten });
+    return NextResponse.json({
+      ok: true,
+      sport: sport ?? process.env.ODDS_API_SPORT,
+      eventsTouched,
+      oddsWritten,
+      markets: markets ?? (market ? [market] : undefined),
+      bookmakers
+    });
   } catch (err) {
     console.error("ingest-odds error:", err);
     return NextResponse.json({ ok: false, error: "internal_error" }, { status: 500 });

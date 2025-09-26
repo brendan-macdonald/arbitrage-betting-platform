@@ -30,19 +30,19 @@
     "startsAt": "2025-09-28T18:00:00.000Z",
     "teamA": "Manchester United (Demo)",
     "teamB": "Liverpool (Demo)",
-    "roi": 0.012,
+    "roi": 0.013,
     "market": "ML",
     "legs": [
       {
         "book": "Bet365",
         "outcome": "A",
-        "dec": 2.1,
+        "dec": 2.12,
         "providerUpdatedAt": "2025-09-24T17:06:00.000Z"
       },
       {
         "book": "William Hill",
         "outcome": "B",
-        "dec": 2.1,
+        "dec": 2.12,
         "providerUpdatedAt": "2025-09-24T17:05:00.000Z"
       }
     ]
@@ -54,19 +54,19 @@
     "startsAt": "2025-09-29T01:00:00.000Z",
     "teamA": "Los Angeles Lakers (Demo)",
     "teamB": "Boston Celtics (Demo)",
-    "roi": 0.008,
+    "roi": 0.011,
     "market": "ML",
     "legs": [
       {
         "book": "Caesars",
         "outcome": "A",
-        "dec": 2.05,
+        "dec": 2.08,
         "providerUpdatedAt": "2025-09-24T17:04:00.000Z"
       },
       {
         "book": "PointsBet",
         "outcome": "B",
-        "dec": 2.05,
+        "dec": 2.08,
         "providerUpdatedAt": "2025-09-24T17:03:00.000Z"
       }
     ]
@@ -109,12 +109,12 @@
     "startsAt": "2025-09-29T03:00:00.000Z",
     "teamA": "Brooklyn Nets (Demo)",
     "teamB": "Chicago Bulls (Demo)",
-    "roi": 0.009,
+    "roi": 0.011,
     "legs": [
       {
         "book": "BetMGM",
         "outcome": "A",
-        "dec": 2.07,
+        "dec": 2.09,
         "line": -2.5,
         "market": "SPREAD",
         "providerUpdatedAt": "2025-09-24T17:00:00.000Z"
@@ -122,7 +122,7 @@
       {
         "book": "Caesars",
         "outcome": "B",
-        "dec": 2.06,
+        "dec": 2.08,
         "line": -2.5,
         "market": "SPREAD",
         "providerUpdatedAt": "2025-09-24T16:59:00.000Z"
@@ -138,12 +138,12 @@
     "startsAt": "2025-09-29T04:00:00.000Z",
     "teamA": "Dallas Mavericks (Demo)",
     "teamB": "Houston Rockets (Demo)",
-    "roi": 0.012,
+    "roi": 0.013,
     "legs": [
       {
         "book": "DraftKings",
         "outcome": "OVER",
-        "dec": 2.09,
+        "dec": 2.12,
         "line": 221.5,
         "market": "TOTAL",
         "providerUpdatedAt": "2025-09-24T16:58:00.000Z"
@@ -151,7 +151,7 @@
       {
         "book": "FanDuel",
         "outcome": "UNDER",
-        "dec": 2.07,
+        "dec": 2.1,
         "line": 221.5,
         "market": "TOTAL",
         "providerUpdatedAt": "2025-09-24T16:57:00.000Z"
@@ -167,12 +167,12 @@
     "startsAt": "2025-09-29T05:00:00.000Z",
     "teamA": "Phoenix Suns (Demo)",
     "teamB": "Utah Jazz (Demo)",
-    "roi": 0.008,
+    "roi": 0.011,
     "legs": [
       {
         "book": "Bet365",
         "outcome": "OVER",
-        "dec": 2.05,
+        "dec": 2.08,
         "line": 221.5,
         "market": "TOTAL",
         "providerUpdatedAt": "2025-09-24T16:56:00.000Z"
@@ -180,7 +180,7 @@
       {
         "book": "PointsBet",
         "outcome": "UNDER",
-        "dec": 2.04,
+        "dec": 2.07,
         "line": 221.5,
         "market": "TOTAL",
         "providerUpdatedAt": "2025-09-24T16:55:00.000Z"

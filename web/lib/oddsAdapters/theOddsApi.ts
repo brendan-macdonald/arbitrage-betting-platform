@@ -1,3 +1,4 @@
+import type { MarketKind } from "@/lib/arbitrage";
 // lib/oddsAdapters/theOddsApi.ts
 //
 // Adapter for The Odds API
@@ -19,11 +20,11 @@ export type RawOddsApiEvent = {
     key: string;       // e.g., "draftkings"
     title: string;     // e.g., "DraftKings"
     markets: Array<{
-      key: string;     // e.g., "h2h"
+      key: string;     // e.g., "h2h", "spreads", "totals"
       outcomes: Array<{
         name: string;  // team name or 'Over'/'Under'
         price: number; // decimal odds
-        point?: number | string; // for spreads/totals
+        point?: number; // always parse as number for spreads/totals
       }>;
     }>;
     last_update?: string; // ISO timestamp from provider (optional)
@@ -92,11 +93,12 @@ function toIsoSeconds(input: string | Date): string {
  * - market: string ("h2h", "spreads", "totals")
  * - commenceTimeFrom / commenceTimeTo: ISO strings for windowing
  */
+
 export async function fetchTheOddsApi(options?: {
   apiKey?: string;
   sport?: string;
   region?: string;
-  market?: string;
+  markets?: MarketKind[];
   commenceTimeFrom?: string;
   commenceTimeTo?: string;
   bookmakers?: string[];
@@ -104,12 +106,19 @@ export async function fetchTheOddsApi(options?: {
   const apiKey = options?.apiKey ?? process.env.ODDS_API_KEY!;
   const sport  = options?.sport  ?? process.env.ODDS_API_SPORT ?? "basketball_nba";
   const region = options?.region ?? process.env.ODDS_API_REGION ?? "us";
-  // Default to all supported markets unless overridden
-  const market = options?.market ?? process.env.ODDS_API_MARKET ?? "h2h,spreads,totals";
+
+  // Map MarketKind[] to API keys
+  const marketMap: Record<MarketKind, string> = { ML: "h2h", SPREAD: "spreads", TOTAL: "totals" };
+  let apiMarkets: string;
+  if (options?.markets && options.markets.length) {
+    apiMarkets = options.markets.map(m => marketMap[m]).join(",");
+  } else {
+    apiMarkets = "h2h";
+  }
 
   const url = new URL(`https://api.the-odds-api.com/v4/sports/${sport}/odds`);
   url.searchParams.set("regions", region);
-  url.searchParams.set("markets", market);
+  url.searchParams.set("markets", apiMarkets);
   url.searchParams.set("oddsFormat", "decimal");
   url.searchParams.set("dateFormat", "iso");
 
@@ -143,9 +152,10 @@ export async function fetchTheOddsApi(options?: {
 
   for (const ev of raw) {
     const { league } = splitSportTitle(ev.sport_title || titleCase(ev.sport_key));
-    const sport = ev.sport_key;
-    const teamA = ev.away_team.trim();
-    const teamB = ev.home_team.trim();
+  const sport = ev.sport_key;
+  // Deterministic ordering: away = A, home = B
+  const teamA = ev.away_team.trim();
+  const teamB = ev.home_team.trim();
 
     const lines: NormalizedLine[] = [];
 

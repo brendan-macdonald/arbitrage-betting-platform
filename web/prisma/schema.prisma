@@ -84,6 +84,7 @@ model Odds {
   @@index([marketId, sportsbookId])
   @@index([outcome, line])
   @@index([marketId, sportsbookId, outcome, line])
+  @@index([marketId, outcome, line])
   @@index([marketId, sportsbookId, outcome, providerUpdatedAt])
 }
 

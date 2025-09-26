@@ -1,3 +1,4 @@
+import type { MarketKind } from "@/lib/arbitrage";
 // app/api/ingest-all/route.ts
 //
 // Optimized batch ingest for recent odds with minimal API usage.
@@ -196,7 +197,7 @@ export async function POST(request: Request) {
               fetchTheOddsApi({
                 sport,
                 region: REGION,
-                market,
+                markets: [market as MarketKind],
                 commenceTimeFrom: fromISO,
                 commenceTimeTo: toISO,
                 bookmakers: bookmakersList,
@@ -267,7 +268,8 @@ export async function POST(request: Request) {
     summary: {
       sports: SPORTS.length,
       region: REGION,
-      markets: MARKETS,
+      markets: marketsList,
+      bookmakers: bookmakersList,
       concurrency: CONCURRENCY,
       hours: TIME_WINDOW_HOURS,
       ttlSeconds: TTL_SECONDS,

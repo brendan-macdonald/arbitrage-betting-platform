@@ -10,19 +10,12 @@
 import Filters from "@/components/Filters";
 import { RefreshButton } from "@/components/RefreshButton";
 import { StakeSplit, type Opportunity as OppForSplit } from "@/components/StakeSplit";
+import type { MarketKind, ArbLeg } from "@/lib/arbitrage";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { timeAgo } from "@/lib/utils";
 
-type Leg = {
-  book: string;
-  outcome: "A" | "B" | "OVER" | "UNDER";
-  dec: number;
-  line?: number;
-  market?: "ML" | "SPREAD" | "TOTAL";
-  providerUpdatedAt?: string;
-  lastSeenAt?: string;
-};
+type Leg = ArbLeg & { dec: number; providerUpdatedAt?: string; lastSeenAt?: string };
 
 type Opportunity = {
   id: string;
@@ -32,7 +25,7 @@ type Opportunity = {
   teamA: string;
   teamB: string;
   roiPct: number;
-  market?: "ML" | "SPREAD" | "TOTAL";
+  market?: MarketKind;
   line?: number;
   legs: Leg[];
 };
@@ -61,6 +54,10 @@ export default function Home() {
   const [demo, setDemo] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
   const [paused, setPaused] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const LIMIT = 25;
 
   // Sync filters to URL
   useEffect(() => {
@@ -75,13 +72,15 @@ export default function Home() {
   }, [sports, markets, minRoi]);
 
   // Build query string from filters
-  function getQuery() {
+  function getQuery(customOffset = offset) {
     const params = new URLSearchParams();
     if (sports.length) params.set("sports", sports.join(","));
     if (markets.length) params.set("markets", markets.join(","));
     if (bookmakers.length) params.set("bookmakers", bookmakers.join(","));
     params.set("minRoi", String(minRoi));
     params.set("freshMins", "10080");
+    params.set("limit", String(LIMIT));
+    params.set("offset", String(customOffset));
     if (demo) params.set("demo", "1");
     return `/api/opportunities?${params.toString()}`;
   }
@@ -103,7 +102,11 @@ export default function Home() {
   }, [mutate]);
 
   useEffect(() => {
-    if (data?.opportunities) setOpps(data.opportunities);
+    if (data?.opportunities) {
+      setOpps(data.opportunities);
+      setTotal(data.summary?.total ?? 0);
+      setOffset(data.summary?.offset ?? 0);
+    }
   }, [data]);
 
   // Demo mode persistence (unchanged)
@@ -114,6 +117,19 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("demoMode", demo ? "1" : "0");
   }, [demo]);
+
+  // Load more handler
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    const nextOffset = offset + LIMIT;
+    const url = getQuery(nextOffset);
+    const res = await fetch(url, { cache: "no-store" });
+    const more = await res.json();
+    setOpps(prev => [...prev, ...(more.opportunities || [])]);
+    setOffset(more.summary?.offset ?? nextOffset);
+    setTotal(more.summary?.total ?? total);
+    setLoadingMore(false);
+  }
 
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-6">
@@ -142,7 +158,7 @@ export default function Home() {
             No opportunities yet for these filters. Try “Ingest now”, widen freshness, or switch sport.
           </p>
         )}
-        {opps.slice(0, 25).map((o) => {
+        {opps.map((o) => {
           const legs = o.legs as Leg[];
           const market = o.market || 'ML';
           const line = typeof o.line === 'number' ? o.line : undefined;
@@ -180,9 +196,11 @@ export default function Home() {
                   if (market === 'ML') {
                     betLabel = `Bet: ${outcomeToTeam(o, l.outcome as "A" | "B")} ML`;
                   } else if (market === 'SPREAD') {
-                    betLabel = `Bet: ${outcomeToTeam(o, l.outcome as "A" | "B")}${typeof l.line === 'number' ? ` ${l.line > 0 ? `+${l.line}` : l.line}` : ''}`;
+                    // Show line next to each leg, stick to A/B mapping
+                    betLabel = `Bet: ${outcomeToTeam(o, l.outcome as "A" | "B")} ${typeof l.line === 'number' ? (l.line > 0 ? `+${l.line}` : l.line) : ''}`;
                   } else if (market === 'TOTAL') {
-                    betLabel = `Bet: ${l.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${l.line}`;
+                    // Show Over/Under plus the line
+                    betLabel = `Bet: ${l.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${typeof l.line === 'number' ? l.line : ''}`;
                   }
                   const american = toAmerican(l.dec);
                   // Prefer providerUpdatedAt, fallback to lastSeenAt (if available)
@@ -215,11 +233,22 @@ export default function Home() {
                   );
                 })}
               </div>
-              {o.roiPct > 0 && <StakeSplit opp={o as OppForSplit} />}
+              {o.roiPct > 0 && <StakeSplit opp={{ ...o, roi: o.roiPct }} />}
             </div>
           );
         })}
-      </section>
+        {opps.length < total && (
+          <div className="flex justify-center mt-4">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="px-4 py-2 rounded bg-blue-600 text-white font-semibold disabled:opacity-50"
+            >
+              {loadingMore ? "Loading..." : `Load more (${total - opps.length} remaining)`}
+            </button>
+          </div>
+        )}
+  </section>
     </main>
   );
 }

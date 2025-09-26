@@ -8,6 +8,7 @@ const MARKET_OPTIONS = [
 	{ value: "totals", label: "Totals" },
 ];
 
+
 function persist({ sports, markets, minRoi, bookmakers }: { sports: string[]; markets: string[]; minRoi: number; bookmakers: string[] }) {
 	localStorage.setItem("prefs.sports", JSON.stringify(sports));
 	localStorage.setItem("prefs.markets", JSON.stringify(markets));
@@ -19,8 +20,8 @@ function syncUrl({ sports, markets, minRoi, bookmakers }: { sports: string[]; ma
 	const params = new URLSearchParams();
 	if (sports.length) params.set("sports", sports.join(","));
 	if (markets.length) params.set("markets", markets.join(","));
-	params.set("minRoi", minRoi.toFixed(1));
 	if (bookmakers.length) params.set("bookmakers", bookmakers.join(","));
+	params.set("minRoi", minRoi.toString());
 	window.history.replaceState({}, "", `?${params}`);
 }
 
@@ -77,18 +78,28 @@ function DropdownMulti({ options, values, onChange, label }: { options: { value:
 	);
 }
 
+
 export default function Filters({ onChange }: { onChange?: (v: { sports: string[]; markets: string[]; minRoi: number; bookmakers: string[] }) => void } = {}) {
 	const [sports, setSports] = useState<string[]>([]);
 	const [markets, setMarkets] = useState<string[]>(["h2h"]);
 	const [minRoi, setMinRoi] = useState<number>(1.0);
 	const [bookmakers, setBookmakers] = useState<string[]>([]);
-	const [bookmakerOptions, setBookmakerOptions] = useState<string[]>([]);
+	const [bookOptions, setBookOptions] = useState<string[]>([]);
+
+	// Debounce refresh
+	const debounceRef = useRef<NodeJS.Timeout | null>(null);
+	function debouncedChange(next: { sports?: string[]; markets?: string[]; minRoi?: number; bookmakers?: string[] }) {
+		if (debounceRef.current) clearTimeout(debounceRef.current);
+		debounceRef.current = setTimeout(() => {
+			handleChange(next);
+		}, 400);
+	}
 
 	useEffect(() => {
 		fetch("/api/opportunities?freshMins=10080")
 			.then(res => res.ok ? res.json() : null)
 			.then(data => {
-				if (data?.bookmakers) setBookmakerOptions(data.bookmakers);
+				if (data?.bookmakers) setBookOptions(data.bookmakers);
 			});
 		const s = JSON.parse(localStorage.getItem("prefs.sports") || "[]");
 		const m = JSON.parse(localStorage.getItem("prefs.markets") || '["h2h"]');
@@ -114,51 +125,50 @@ export default function Filters({ onChange }: { onChange?: (v: { sports: string[
 		setBookmakers(b);
 		persist({ sports: s, markets: m, minRoi: r, bookmakers: b });
 		syncUrl({ sports: s, markets: m, minRoi: r, bookmakers: b });
-		// Send minRoi as decimal to backend (0.01% = 0.0001, 1% = 0.01)
-		onChange?.({ sports: s, markets: m, minRoi: r / 100, bookmakers: b });
+		onChange?.({ sports: s, markets: m, minRoi: r, bookmakers: b });
 	}
 
 	return (
 		<div className="flex flex-wrap items-center gap-4 p-2 bg-white/70 rounded-xl shadow-sm">
-			<div>
-				<span className="text-xs text-muted-foreground mr-2">Bookmakers</span>
-				<DropdownMulti
-					options={bookmakerOptions.map(b => ({ value: b, label: b }))}
-					values={bookmakers}
-					onChange={v => handleChange({ bookmakers: v })}
-					label="bookmakers"
-				/>
-			</div>
-			<div>
-				<span className="text-xs text-muted-foreground mr-2">Sports</span>
-				<DropdownMulti
-					options={SPORTS.map(s => ({ value: s, label: SPORT_DISPLAY_NAMES[s] || s }))}
-					values={sports}
-					onChange={v => handleChange({ sports: v })}
-					label="sports"
-				/>
-			</div>
-			<div>
-				<span className="text-xs text-muted-foreground mr-2">Markets</span>
-				<DropdownMulti
-					options={MARKET_OPTIONS}
-					values={markets}
-					onChange={v => handleChange({ markets: v })}
-					label="markets"
-				/>
-			</div>
-							<label className="flex items-center gap-2 text-xs">
-								ROI ≥ <span className="font-semibold">{minRoi.toFixed(2)}%</span>
-								<input
-									type="range"
-									min={0.01}
-									max={5.0}
-									step={0.01}
-									value={minRoi}
-									onChange={e => handleChange({ minRoi: Number(e.target.value) })}
-									className="accent-blue-500 w-28"
-								/>
-							</label>
+					<div>
+						<span className="text-xs text-muted-foreground mr-2">Bookmakers</span>
+									<DropdownMulti
+										options={bookOptions.map(b => ({ value: b, label: b }))}
+										values={bookmakers}
+										onChange={v => debouncedChange({ bookmakers: v })}
+										label="bookmakers"
+									/>
+					</div>
+					<div>
+						<span className="text-xs text-muted-foreground mr-2">Sports</span>
+						<DropdownMulti
+							options={SPORTS.map(s => ({ value: s, label: SPORT_DISPLAY_NAMES[s] || s }))}
+							values={sports}
+							onChange={v => debouncedChange({ sports: v })}
+							label="sports"
+						/>
+					</div>
+					<div>
+						<span className="text-xs text-muted-foreground mr-2">Markets</span>
+						<DropdownMulti
+							options={MARKET_OPTIONS}
+							values={markets}
+							onChange={v => debouncedChange({ markets: v })}
+							label="markets"
+						/>
+					</div>
+											<label className="flex items-center gap-2 text-xs">
+												ROI ≥ <span className="font-semibold">{minRoi.toFixed(2)}%</span>
+												<input
+													type="range"
+													min={0.01}
+													max={5.0}
+													step={0.01}
+													value={minRoi}
+													onChange={e => debouncedChange({ minRoi: Number(e.target.value) })}
+													className="accent-blue-500 w-28"
+												/>
+											</label>
 		</div>
 	);
 }
