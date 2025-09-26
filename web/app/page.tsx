@@ -12,6 +12,7 @@ import { RefreshButton } from "@/components/RefreshButton";
 import { StakeSplit, type Opportunity as OppForSplit } from "@/components/StakeSplit";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
+import { timeAgo } from "@/lib/utils";
 
 type Leg = {
   book: string;
@@ -19,6 +20,8 @@ type Leg = {
   dec: number;
   line?: number;
   market?: "ML" | "SPREAD" | "TOTAL";
+  providerUpdatedAt?: string;
+  lastSeenAt?: string;
 };
 
 type Opportunity = {
@@ -182,12 +185,32 @@ export default function Home() {
                     betLabel = `Bet: ${l.outcome === 'OVER' ? 'OVER' : 'UNDER'} ${l.line}`;
                   }
                   const american = toAmerican(l.dec);
+                  // Prefer providerUpdatedAt, fallback to lastSeenAt (if available)
+                  const lastUpdateIso = l.providerUpdatedAt || l.lastSeenAt;
+                  const ago = timeAgo(lastUpdateIso);
+                  // Consider stale if older than 5 minutes (300s)
+                  let isStale = false;
+                  if (lastUpdateIso) {
+                    const d = new Date(lastUpdateIso);
+                    if (isFinite(d.getTime())) {
+                      isStale = (Date.now() - d.getTime()) > 5 * 60 * 1000;
+                    }
+                  }
                   return (
                     <div key={i} className="rounded-xl border p-3">
                       <div className="text-xs text-muted-foreground">{l.book}</div>
                       <div className="font-medium">{betLabel}</div>
                       <div className="text-lg font-semibold">{american}</div>
                       <div className="text-xs text-muted-foreground">(decimal {l.dec.toFixed(2)})</div>
+                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        Last update: {ago}
+                        {isStale && (
+                          <span className="ml-1 px-2 py-0.5 rounded bg-yellow-100 text-yellow-700 font-semibold flex items-center gap-1">
+                            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" title="Stale"></span>
+                            <span>stale</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

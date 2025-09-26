@@ -72,6 +72,7 @@ model Odds {
   decimal      Float                                 // decimal odds (e.g. 2.10)
   line         Float?                                // spread/total line (null for ML)
   lastSeenAt   DateTime   @default(now())
+  providerUpdatedAt DateTime?                        // provider's last_update timestamp (nullable)
 
   market       Market     @relation(fields: [marketId], references: [id], onDelete: Cascade)
   sportsbook   Sportsbook @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
@@ -83,6 +84,7 @@ model Odds {
   @@index([marketId, sportsbookId])
   @@index([outcome, line])
   @@index([marketId, sportsbookId, outcome, line])
+  @@index([marketId, sportsbookId, outcome, providerUpdatedAt])
 }
 
 model OddsFingerprint {

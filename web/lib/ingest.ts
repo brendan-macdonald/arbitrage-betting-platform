@@ -66,7 +66,7 @@ async function getOrCreateEventAndMarket(e: NormalizedEvent) {
  */
 async function upsertOddsBatch(
   marketId: string,
-  lines: Array<{ book: string; outcome: "A" | "B" | "OVER" | "UNDER"; decimal: number; line?: number }>
+  lines: Array<{ book: string; outcome: "A" | "B" | "OVER" | "UNDER"; decimal: number; line?: number; providerUpdatedAt?: string }>
 ) {
   for (const line of lines) {
     // Ensure sportsbook exists
@@ -75,6 +75,9 @@ async function upsertOddsBatch(
       update: {},
       create: { name: line.book },
     });
+
+    // Prepare providerUpdatedAt value if present
+    const providerUpdatedAt = line.providerUpdatedAt ? new Date(line.providerUpdatedAt) : undefined;
 
     // Use correct upsert key for ML/H2H (line is null) vs. spreads/totals (line is number)
     if (line.line === undefined || line.line === null) {
@@ -87,13 +90,18 @@ async function upsertOddsBatch(
             outcome: line.outcome,
           },
         },
-        update: { decimal: line.decimal, lastSeenAt: new Date() },
+        update: {
+          decimal: line.decimal,
+          lastSeenAt: new Date(),
+          ...(providerUpdatedAt !== undefined ? { providerUpdatedAt } : {}),
+        },
         create: {
           marketId,
           sportsbookId: book.id,
           outcome: line.outcome,
           decimal: line.decimal,
           line: null,
+          ...(providerUpdatedAt !== undefined ? { providerUpdatedAt } : {}),
         },
       });
     } else {
@@ -107,13 +115,18 @@ async function upsertOddsBatch(
             line: line.line,
           },
         },
-        update: { decimal: line.decimal, lastSeenAt: new Date() },
+        update: {
+          decimal: line.decimal,
+          lastSeenAt: new Date(),
+          ...(providerUpdatedAt !== undefined ? { providerUpdatedAt } : {}),
+        },
         create: {
           marketId,
           sportsbookId: book.id,
           outcome: line.outcome,
           decimal: line.decimal,
           line: line.line,
+          ...(providerUpdatedAt !== undefined ? { providerUpdatedAt } : {}),
         },
       });
     }

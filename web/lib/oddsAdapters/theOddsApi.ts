@@ -26,6 +26,7 @@ export type RawOddsApiEvent = {
         point?: number | string; // for spreads/totals
       }>;
     }>;
+    last_update?: string; // ISO timestamp from provider (optional)
   }>;
 };
 
@@ -40,6 +41,7 @@ export type NormalizedLine = {
   outcome: 'A' | 'B' | 'OVER' | 'UNDER';
   decimal: number;
   line?: number; // for SPREAD/TOTAL
+  providerUpdatedAt?: string; // ISO timestamp from provider
 };
 
 export type NormalizedEvent = {
@@ -148,15 +150,21 @@ export async function fetchTheOddsApi(options?: {
     const lines: NormalizedLine[] = [];
 
     for (const book of ev.bookmakers ?? []) {
+      let providerUpdatedAt: string | undefined = undefined;
+      if (book.last_update) {
+        try {
+          providerUpdatedAt = new Date(book.last_update).toISOString();
+        } catch {}
+      }
       // Moneyline (h2h)
       const ml = (book.markets ?? []).find((m) => m.key === "h2h");
       if (ml) {
         for (const out of ml.outcomes ?? []) {
           const name = (out.name || "").trim();
           if (name === teamA) {
-            lines.push({ book: book.title || book.key, market: 'ML', outcome: "A", decimal: out.price });
+            lines.push({ book: book.title || book.key, market: 'ML', outcome: "A", decimal: out.price, providerUpdatedAt });
           } else if (name === teamB) {
-            lines.push({ book: book.title || book.key, market: 'ML', outcome: "B", decimal: out.price });
+            lines.push({ book: book.title || book.key, market: 'ML', outcome: "B", decimal: out.price, providerUpdatedAt });
           }
         }
       }
@@ -168,9 +176,9 @@ export async function fetchTheOddsApi(options?: {
           const name = (out.name || "").trim();
           const point = typeof out.point === 'number' ? out.point : Number(out.point);
           if (name === teamA) {
-            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "A", decimal: out.price, line: point });
+            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "A", decimal: out.price, line: point, providerUpdatedAt });
           } else if (name === teamB) {
-            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "B", decimal: out.price, line: point });
+            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "B", decimal: out.price, line: point, providerUpdatedAt });
           }
         }
       }
@@ -182,9 +190,9 @@ export async function fetchTheOddsApi(options?: {
           const name = (out.name || "").trim().toLowerCase();
           const point = typeof out.point === 'number' ? out.point : Number(out.point);
           if (name === "over") {
-            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "OVER", decimal: out.price, line: point });
+            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "OVER", decimal: out.price, line: point, providerUpdatedAt });
           } else if (name === "under") {
-            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "UNDER", decimal: out.price, line: point });
+            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "UNDER", decimal: out.price, line: point, providerUpdatedAt });
           }
         }
       }

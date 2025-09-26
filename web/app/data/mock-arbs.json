@@ -9,8 +9,18 @@
     "roi": 0.024,
     "market": "ML",
     "legs": [
-      { "book": "DraftKings", "outcome": "A", "dec": 2.25 },
-      { "book": "FanDuel", "outcome": "B", "dec": 2.25 }
+      {
+        "book": "DraftKings",
+        "outcome": "A",
+        "dec": 2.25,
+        "providerUpdatedAt": "2025-09-24T17:08:00.000Z"
+      },
+      {
+        "book": "FanDuel",
+        "outcome": "B",
+        "dec": 2.25,
+        "providerUpdatedAt": "2025-09-24T17:07:00.000Z"
+      }
     ]
   },
   {
@@ -23,8 +33,18 @@
     "roi": 0.012,
     "market": "ML",
     "legs": [
-      { "book": "Bet365", "outcome": "A", "dec": 2.1 },
-      { "book": "William Hill", "outcome": "B", "dec": 2.1 }
+      {
+        "book": "Bet365",
+        "outcome": "A",
+        "dec": 2.1,
+        "providerUpdatedAt": "2025-09-24T17:06:00.000Z"
+      },
+      {
+        "book": "William Hill",
+        "outcome": "B",
+        "dec": 2.1,
+        "providerUpdatedAt": "2025-09-24T17:05:00.000Z"
+      }
     ]
   },
   {
@@ -37,8 +57,18 @@
     "roi": 0.008,
     "market": "ML",
     "legs": [
-      { "book": "Caesars", "outcome": "A", "dec": 2.05 },
-      { "book": "PointsBet", "outcome": "B", "dec": 2.05 }
+      {
+        "book": "Caesars",
+        "outcome": "A",
+        "dec": 2.05,
+        "providerUpdatedAt": "2025-09-24T17:04:00.000Z"
+      },
+      {
+        "book": "PointsBet",
+        "outcome": "B",
+        "dec": 2.05,
+        "providerUpdatedAt": "2025-09-24T17:03:00.000Z"
+      }
     ]
   },
   {
@@ -57,14 +87,16 @@
         "outcome": "A",
         "dec": 2.1,
         "line": -2.5,
-        "market": "SPREAD"
+        "market": "SPREAD",
+        "providerUpdatedAt": "2025-09-24T17:02:00.000Z"
       },
       {
         "book": "FanDuel",
         "outcome": "B",
         "dec": 2.08,
         "line": -2.5,
-        "market": "SPREAD"
+        "market": "SPREAD",
+        "providerUpdatedAt": "2025-09-24T17:01:00.000Z"
       }
     ]
   },
@@ -84,14 +116,16 @@
         "outcome": "A",
         "dec": 2.07,
         "line": -2.5,
-        "market": "SPREAD"
+        "market": "SPREAD",
+        "providerUpdatedAt": "2025-09-24T17:00:00.000Z"
       },
       {
         "book": "Caesars",
         "outcome": "B",
         "dec": 2.06,
         "line": -2.5,
-        "market": "SPREAD"
+        "market": "SPREAD",
+        "providerUpdatedAt": "2025-09-24T16:59:00.000Z"
       }
     ]
   },
@@ -111,14 +145,16 @@
         "outcome": "OVER",
         "dec": 2.09,
         "line": 221.5,
-        "market": "TOTAL"
+        "market": "TOTAL",
+        "providerUpdatedAt": "2025-09-24T16:58:00.000Z"
       },
       {
         "book": "FanDuel",
         "outcome": "UNDER",
         "dec": 2.07,
         "line": 221.5,
-        "market": "TOTAL"
+        "market": "TOTAL",
+        "providerUpdatedAt": "2025-09-24T16:57:00.000Z"
       }
     ]
   },
@@ -138,14 +174,16 @@
         "outcome": "OVER",
         "dec": 2.05,
         "line": 221.5,
-        "market": "TOTAL"
+        "market": "TOTAL",
+        "providerUpdatedAt": "2025-09-24T16:56:00.000Z"
       },
       {
         "book": "PointsBet",
         "outcome": "UNDER",
         "dec": 2.04,
         "line": 221.5,
-        "market": "TOTAL"
+        "market": "TOTAL",
+        "providerUpdatedAt": "2025-09-24T16:55:00.000Z"
       }
     ]
   }

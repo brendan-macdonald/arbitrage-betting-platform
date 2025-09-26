@@ -124,7 +124,7 @@ export async function GET(request: Request) {
       odds.forEach((o: any) => uniqueBooks.add(o.sportsbook.name));
       // ML
       if (m.type === 'ML' && marketTypes.includes('ML')) {
-        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, outcome: o.outcome, decimal: o.decimal }));
+        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, outcome: o.outcome, decimal: o.decimal, providerUpdatedAt: o.providerUpdatedAt ?? undefined }));
         // Debug log: print lines for ML market
         console.log(`[ARBITRAGE DEBUG] ML lines for event ${ev.teamA} vs ${ev.teamB}:`, lines);
         const arb = findMlArb(lines);
@@ -146,13 +146,16 @@ export async function GET(request: Request) {
             teamB: ev.teamB,
             roiPct: arb.roi,
             stake: stakeSplit(100, arb.legs[0].dec, arb.legs[1].dec),
-            legs: arb.legs,
+            legs: arb.legs.map((leg: any) => {
+              const match = lines.find((l: any) => l.book === leg.book && l.outcome === leg.outcome && l.decimal === leg.dec);
+              return match ? { ...leg, providerUpdatedAt: match.providerUpdatedAt } : leg;
+            }),
           });
         }
       }
       // SPREAD
       if (m.type === 'SPREAD' && marketTypes.includes('SPREAD')) {
-        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, market: 'SPREAD', outcome: o.outcome, decimal: o.decimal, line: o.line }));
+        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, market: 'SPREAD', outcome: o.outcome, decimal: o.decimal, line: o.line, providerUpdatedAt: o.providerUpdatedAt ?? undefined }));
         for (const arb of findSpreadArbs(lines)) {
           if (arb.roi >= minRoi) {
             results.push({
@@ -166,14 +169,17 @@ export async function GET(request: Request) {
               line: arb.line,
               roiPct: arb.roi,
               stake: stakeSplit(100, arb.legs[0].dec, arb.legs[1].dec),
-              legs: arb.legs,
+              legs: arb.legs.map((leg: any) => {
+                const match = lines.find((l: any) => l.book === leg.book && l.outcome === leg.outcome && l.decimal === leg.dec && l.line === leg.line);
+                return match ? { ...leg, providerUpdatedAt: match.providerUpdatedAt } : leg;
+              }),
             });
           }
         }
       }
       // TOTAL
       if (m.type === 'TOTAL' && marketTypes.includes('TOTAL')) {
-        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, market: 'TOTAL', outcome: o.outcome, decimal: o.decimal, line: o.line }));
+        const lines = odds.map((o: any) => ({ book: o.sportsbook.name, market: 'TOTAL', outcome: o.outcome, decimal: o.decimal, line: o.line, providerUpdatedAt: o.providerUpdatedAt ?? undefined }));
         for (const arb of findTotalArbs(lines)) {
           if (arb.roi >= minRoi) {
             results.push({
@@ -187,7 +193,10 @@ export async function GET(request: Request) {
               line: arb.line,
               roiPct: arb.roi,
               stake: stakeSplit(100, arb.legs[0].dec, arb.legs[1].dec),
-              legs: arb.legs,
+              legs: arb.legs.map((leg: any) => {
+                const match = lines.find((l: any) => l.book === leg.book && l.outcome === leg.outcome && l.decimal === leg.dec && l.line === leg.line);
+                return match ? { ...leg, providerUpdatedAt: match.providerUpdatedAt } : leg;
+              }),
             });
           }
         }
