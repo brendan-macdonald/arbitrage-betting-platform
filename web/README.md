@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Arbitrage Betting Platform – Frontend
 
-## Getting Started
+## Overview
 
-First, run the development server:
+This frontend is a modern, type-safe web application built with Next.js (App Router), React, and TypeScript. It provides a responsive, real-time UI for discovering and analyzing sports betting arbitrage opportunities, with a focus on performance, usability, and extensibility.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Key Frontend Features
+
+- **Modern UI/UX:** Responsive design with Tailwind CSS, dark mode, and mobile-friendly layouts
+- **Real-time filtering:** Debounced, persistent filters for sports, markets, ROI, and bookmakers
+- **Infinite scroll / pagination:** Efficiently loads and displays large result sets
+- **Admin dashboard:** Analytics, health checks, and debug tools for operators
+- **Demo mode:** Safe, offline testing with mock data
+- **Type safety:** End-to-end TypeScript, shared types between frontend and backend
+- **Optimized data fetching:** SWR for caching, revalidation, and low-latency updates
+
+## Frontend Architecture
+
+- **App Router:** Uses Next.js 15 App Router for server components, layouts, and API integration
+- **Component Structure:**
+  - `/app` – Main pages and layouts
+  - `/components` – UI components (Filters, StakeSplit, RefreshButton, etc.)
+  - `/lib` – Shared utilities and type definitions
+- **State Management:** Local state (React hooks), URL params, and localStorage for filter persistence
+- **Data Flow:**
+  1.  User sets filters (sports, markets, ROI, bookmakers)
+  2.  UI syncs state to URL and localStorage
+  3.  SWR fetches opportunities from REST API with current filters
+  4.  Results are displayed, paginated, and updated in real time
+
+Frontend Architecture Diagram:
+
+```
+┌──────────────────────────────┐
+│        User (Browser)        │
+└──────────────┬───────────────┘
+         │
+         ▼
+┌──────────────────────────────┐
+│      React Components        │
+│  (Filters, StakeSplit, etc.) │
+└──────────────┬───────────────┘
+         │
+         ▼
+┌──────────────────────────────┐
+│   State Management & SWR     │
+│ (URL, localStorage, caching) │
+└──────────────┬───────────────┘
+         │
+         ▼
+┌──────────────────────────────┐
+│      REST API Requests       │
+│   (/api/opportunities, etc.) │
+└──────────────┬───────────────┘
+         │
+         ▼
+┌──────────────────────────────┐
+│      Rendered UI Output      │
+└──────────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Installation & Local Development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# From project root, install dependencies
+cd web
+npm install
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Start the development server
+npm run dev
 
-## Learn More
+# Visit http://localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Usage & Customization
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Edit UI:** Modify components in `/components` or pages in `/app`
+- **Add new filters:** Update `Filters.tsx` and sync with backend API params
+- **Theming:** Tailwind CSS for rapid UI changes and dark mode
+- **Type safety:** All API responses and UI state use shared TypeScript types
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Example: Filtered Arbitrage Opportunity
 
-## Deploy on Vercel
+```json
+{
+  "id": "456-SPREAD",
+  "sport": "basketball",
+  "league": "NBA",
+  "startsAt": "2025-09-27T01:00:00Z",
+  "teamA": "Lakers",
+  "teamB": "Celtics",
+  "roiPct": 1.85,
+  "market": "SPREAD",
+  "line": -3.5,
+  "legs": [
+    { "book": "BookA", "outcome": "A", "dec": 1.95 },
+    { "book": "BookB", "outcome": "B", "dec": 1.95 }
+  ]
+}
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Frontend Impact & Resume Value
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Built a real-time, type-safe React UI for financial/odds data
+- Implemented persistent, debounced filters and infinite scroll
+- Demonstrated advanced state management and API integration
+- Designed for extensibility: new sports, markets, and UI features can be added rapidly
+
+## Future Frontend Enhancements
+
+- PWA/mobile support for on-the-go arbitrage monitoring
+- Advanced data visualizations (charts, ROI history, etc.)
+- User authentication and personalized alerting
+- Integration with AI/ML-driven odds prediction APIs
+
+---
+
+> For backend and full-stack documentation, see the project root `README.md`.
