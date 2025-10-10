@@ -1,9 +1,8 @@
 "use client";
-/**
- * Client component:
- * - Next.js App Router defaults to server components
- * - This file needs browser interactivity (onClick, fetch)
- */
+// RefreshButton: triggers odds ingest and refreshes page.
+// - POSTs to /api/ingest-odds with current filters.
+// - Handles rate limiting, disables for 10s after click.
+// - Contract: Only triggers ingest for current sport/region/market.
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -30,14 +29,16 @@ export function RefreshButton() {
     try {
       setIsLoading(true);
       setDisabled(true);
-      setTimeout(() => setDisabled(false), 10000); // Disable for 10s after click
+      setTimeout(() => setDisabled(false), 10000); // Prevent spamming ingest
       // Use current filter values for ingest
       const url = `/api/ingest-odds?sport=${encodeURIComponent(
         sport
-      )}&region=${encodeURIComponent(region)}&market=${encodeURIComponent(market)}`;
+      )}&region=${encodeURIComponent(region)}&market=${encodeURIComponent(
+        market
+      )}`;
       const res = await fetch(url, { method: "POST" });
       if (res.status === 429) {
-        setToast("Too many refreshes, try again in a few seconds.");
+        setToast("Too many refreshes, try again in a few seconds."); // Rate limit feedback
         setTimeout(() => setToast(""), 4000);
         return;
       }
@@ -46,7 +47,7 @@ export function RefreshButton() {
       }
       const data = await res.json();
       console.log("Ingest result:", data);
-      router.refresh();
+      router.refresh(); // Refresh page after ingest
     } catch (e) {
       console.error("Failed to ingest odds:", e);
     } finally {

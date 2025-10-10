@@ -1,11 +1,13 @@
-
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { prisma } from "@/lib/db";
 import { twoWayArbROI } from "@/lib/arbitrage";
 
+// Admin analytics dashboard. Aggregates stats for ops and sanity checks.
+
 async function getEventsNext24h() {
+  // Upcoming events in next 24h
   const now = new Date();
   const to = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   return prisma.event.count({
@@ -14,6 +16,7 @@ async function getEventsNext24h() {
 }
 
 async function getUniqueSports() {
+  // Unique sports with upcoming events
   const sports = await prisma.event.findMany({
     distinct: ["sport"],
     select: { sport: true },
@@ -23,19 +26,28 @@ async function getUniqueSports() {
 }
 
 async function getUniqueBooks() {
+  // Unique sportsbooks
   const books = await prisma.sportsbook.count();
   return books;
 }
 
 async function getMostRecentEvent() {
+  // Most recent event (by start time)
   const event = await prisma.event.findFirst({
     orderBy: { startsAt: "desc" },
-    select: { sport: true, league: true, teamA: true, teamB: true, startsAt: true },
+    select: {
+      sport: true,
+      league: true,
+      teamA: true,
+      teamB: true,
+      startsAt: true,
+    },
   });
   return event;
 }
 
 async function getMostPopularSport() {
+  // Most popular sport (by event count)
   const agg = await prisma.event.groupBy({
     by: ["sport"],
     _count: { sport: true },
@@ -46,15 +58,18 @@ async function getMostPopularSport() {
 }
 
 async function getOddsRowsLast24h() {
+  // Odds rows updated in last 24h
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return prisma.odds.count({ where: { lastSeenAt: { gte: since } } });
 }
 
 async function getTotalOddsRows() {
+  // Total odds rows in DB
   return prisma.odds.count();
 }
 
 async function getArbsLast24h() {
+  // ML arbs found in last 24h (ROI ≥ 0.5%)
   // Find all ML markets with odds updated in last 24h
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const markets = await prisma.market.findMany({
@@ -70,7 +85,8 @@ async function getArbsLast24h() {
   });
   let count = 0;
   for (const m of markets) {
-    let bestA = null, bestB = null;
+    let bestA = null,
+      bestB = null;
     for (const o of m.odds) {
       if (o.outcome === "A" && (!bestA || o.decimal > bestA.decimal)) bestA = o;
       if (o.outcome === "B" && (!bestB || o.decimal > bestB.decimal)) bestB = o;
@@ -84,6 +100,7 @@ async function getArbsLast24h() {
 }
 
 async function getLastIngestTime() {
+  // Last odds ingest timestamp
   const last = await prisma.odds.findFirst({
     orderBy: { lastSeenAt: "desc" },
     select: { lastSeenAt: true },
@@ -91,9 +108,19 @@ async function getLastIngestTime() {
   return last?.lastSeenAt || null;
 }
 
+// Main dashboard page
 export default async function AnalyticsAdminPage() {
-
-  const [events24h, oddsRows, arbs24h, lastIngest, uniqueSports, uniqueBooks, mostRecentEvent, mostPopularSport, oddsRows24h] = await Promise.all([
+  const [
+    events24h,
+    oddsRows,
+    arbs24h,
+    lastIngest,
+    uniqueSports,
+    uniqueBooks,
+    mostRecentEvent,
+    mostPopularSport,
+    oddsRows24h,
+  ] = await Promise.all([
     getEventsNext24h(),
     getTotalOddsRows(),
     getArbsLast24h(),
@@ -115,7 +142,11 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-4xl font-extrabold text-blue-700">{events24h ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-4xl font-extrabold text-blue-700">
+            {events24h ?? (
+              <span className="text-muted-foreground">No data</span>
+            )}
+          </span>
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-green-50 to-white border-green-200">
@@ -126,7 +157,9 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-4xl font-extrabold text-green-700">{oddsRows ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-4xl font-extrabold text-green-700">
+            {oddsRows ?? <span className="text-muted-foreground">No data</span>}
+          </span>
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-yellow-50 to-white border-yellow-200">
@@ -137,7 +170,9 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-4xl font-extrabold text-yellow-700">{arbs24h ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-4xl font-extrabold text-yellow-700">
+            {arbs24h ?? <span className="text-muted-foreground">No data</span>}
+          </span>
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-purple-50 to-white border-purple-200">
@@ -148,7 +183,13 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-lg font-semibold">{lastIngest ? new Date(lastIngest).toLocaleString() : <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-lg font-semibold">
+            {lastIngest ? (
+              new Date(lastIngest).toLocaleString()
+            ) : (
+              <span className="text-muted-foreground">No data</span>
+            )}
+          </span>
         </CardContent>
       </Card>
 
@@ -160,7 +201,11 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-3xl font-bold text-pink-700">{uniqueSports ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-3xl font-bold text-pink-700">
+            {uniqueSports ?? (
+              <span className="text-muted-foreground">No data</span>
+            )}
+          </span>
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-indigo-50 to-white border-indigo-200">
@@ -171,7 +216,11 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-3xl font-bold text-indigo-700">{uniqueBooks ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-3xl font-bold text-indigo-700">
+            {uniqueBooks ?? (
+              <span className="text-muted-foreground">No data</span>
+            )}
+          </span>
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-orange-50 to-white border-orange-200">
@@ -182,7 +231,11 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-3xl font-bold text-orange-700">{oddsRows24h ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-3xl font-bold text-orange-700">
+            {oddsRows24h ?? (
+              <span className="text-muted-foreground">No data</span>
+            )}
+          </span>
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-sky-50 to-white border-sky-200">
@@ -195,11 +248,20 @@ export default async function AnalyticsAdminPage() {
         <CardContent>
           {mostRecentEvent ? (
             <div className="flex flex-col gap-1">
-              <span className="font-semibold text-sky-700">{mostRecentEvent.sport} {mostRecentEvent.league && `(${mostRecentEvent.league})`}</span>
-              <span className="text-base">{mostRecentEvent.teamA} vs {mostRecentEvent.teamB}</span>
-              <span className="text-xs text-muted-foreground">{new Date(mostRecentEvent.startsAt).toLocaleString()}</span>
+              <span className="font-semibold text-sky-700">
+                {mostRecentEvent.sport}{" "}
+                {mostRecentEvent.league && `(${mostRecentEvent.league})`}
+              </span>
+              <span className="text-base">
+                {mostRecentEvent.teamA} vs {mostRecentEvent.teamB}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {new Date(mostRecentEvent.startsAt).toLocaleString()}
+              </span>
             </div>
-          ) : <span className="text-muted-foreground">No data</span>}
+          ) : (
+            <span className="text-muted-foreground">No data</span>
+          )}
         </CardContent>
       </Card>
       <Card className="bg-gradient-to-br from-lime-50 to-white border-lime-200">
@@ -210,7 +272,11 @@ export default async function AnalyticsAdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <span className="text-2xl font-bold text-lime-700">{mostPopularSport ?? <span className="text-muted-foreground">No data</span>}</span>
+          <span className="text-2xl font-bold text-lime-700">
+            {mostPopularSport ?? (
+              <span className="text-muted-foreground">No data</span>
+            )}
+          </span>
         </CardContent>
       </Card>
     </div>

@@ -1,4 +1,15 @@
-// In-memory cache for GET /api/opportunities
+/**
+ * Smoke test endpoint for arbitrage detection.
+ * Finds best cross-book ML arbs for recent events. Used for quick sanity checks.
+ * Assumes DB schema matches expected market/outcome structure.
+ */
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { findTwoWayArbs, MarketKind, ArbLeg } from "@/lib/arbitrage";
+import fs from "fs/promises";
+import path from "path";
+
 const CACHE_TTL_MS = 20_000;
 const cache = new Map<string, { data: any; expiry: number }>();
 
@@ -16,18 +27,16 @@ function buildCacheKey(params: {
     params.books.sort().join(","),
     params.minRoi,
     params.limit ?? "",
-    params.offset ?? ""
+    params.offset ?? "",
   ].join("|");
 }
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { findTwoWayArbs, MarketKind, ArbLeg } from "@/lib/arbitrage";
-import fs from "fs/promises";
-import path from "path";
 
 function parseCommaList(val: string | null | undefined): string[] {
   if (!val) return [];
-  return val.split(",").map(s => s.trim()).filter(Boolean);
+  return val
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 function parseNum(val: string | null | undefined, def: number): number {
   const n = Number(val);
@@ -41,21 +50,37 @@ function roiOnStake(a: number, b: number) {
 export async function GET(request: Request) {
   // Skip cache if DEMO mode or ?cache=0
   const url = new URL(request.url);
-  const skipCache = process.env.DEMO === '1' || url.searchParams.get("cache") === "0";
+  const skipCache =
+    process.env.DEMO === "1" || url.searchParams.get("cache") === "0";
 
   // Parse filters (must match cache key logic)
   const sports = parseCommaList(url.searchParams.get("sports"));
   const markets = parseCommaList(url.searchParams.get("markets"));
   const booksCsv = url.searchParams.get("books")?.trim() || "";
   const bookmakersCsv = url.searchParams.get("bookmakers")?.trim() || "";
-  const bookWhitelist: string[] = (bookmakersCsv || booksCsv)
-    ? (bookmakersCsv || booksCsv).split(",").map((b: string) => b.trim().toLowerCase()).filter(Boolean)
-    : [];
+  const bookWhitelist: string[] =
+    bookmakersCsv || booksCsv
+      ? (bookmakersCsv || booksCsv)
+          .split(",")
+          .map((b: string) => b.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
   const minRoi = parseNum(url.searchParams.get("minRoi"), 0.01);
-  const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 25;
-  const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+  const limit = url.searchParams.get("limit")
+    ? Number(url.searchParams.get("limit"))
+    : 25;
+  const offset = url.searchParams.get("offset")
+    ? Number(url.searchParams.get("offset"))
+    : 0;
 
-  const cacheKey = buildCacheKey({ sports, markets, books: bookWhitelist, minRoi, limit, offset });
+  const cacheKey = buildCacheKey({
+    sports,
+    markets,
+    books: bookWhitelist,
+    minRoi,
+    limit,
+    offset,
+  });
   if (!skipCache) {
     const cached = cache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
@@ -64,7 +89,7 @@ export async function GET(request: Request) {
   }
   // Parse filters
   const allBooks = await prisma.sportsbook.findMany({ select: { name: true } });
-  const allBookmakers = allBooks.map(b => b.name).sort();
+  const allBookmakers = allBooks.map((b) => b.name).sort();
   // const url = new URL(request.url); // Already declared above
   const useDemo = url.searchParams.get("demo") === "1";
   // If minRoi is not provided, default to 0.0001 (0.01%) in demo mode, else 0.01 (1%)
@@ -72,41 +97,66 @@ export async function GET(request: Request) {
   let freshMins = parseNum(rawFreshMins, 10080);
   if (freshMins < 1) freshMins = 10080;
   const marketTypes: MarketKind[] = markets.length
-    ? markets.map((m: string) => {
+    ? (markets.map((m: string) => {
         if (m.toLowerCase() === "h2h") return "ML";
         if (m.toLowerCase() === "spread") return "SPREAD";
         if (m.toLowerCase() === "totals") return "TOTAL";
         return m.toUpperCase();
-      }) as MarketKind[]
+      }) as MarketKind[])
     : ["ML"];
   const FRESH_MS = freshMins * 60_000;
   const now = Date.now();
 
   // DEMO MODE LOGIC
-  // ...existing code...
   if (useDemo) {
     try {
       const mockPath = path.join(process.cwd(), "app/data/mock-arbs.json");
       const mockData = await fs.readFile(mockPath, "utf-8");
       let mock = JSON.parse(mockData);
       const beforeCount = mock.length;
-      mock = mock.filter((opp: any) => {
-        if (sports.length && !sports.includes(String(opp.sport))) return false;
-        if (marketTypes.length && opp.market && !marketTypes.includes(opp.market)) return false;
-        if (typeof opp.roi === "number" && opp.roi < minRoi) return false;
-        if (bookWhitelist.length && !opp.legs?.some((l: any) => bookWhitelist.includes(l.book.toLowerCase()))) return false;
-        return true;
-      }).map((opp: any) => ({
-        ...opp,
-        roiPct: typeof opp.roi === 'number' ? opp.roi * 100 : undefined
-      }));
+      mock = mock
+        .filter((opp: any) => {
+          if (sports.length && !sports.includes(String(opp.sport)))
+            return false;
+          if (
+            marketTypes.length &&
+            opp.market &&
+            !marketTypes.includes(opp.market)
+          )
+            return false;
+          if (typeof opp.roi === "number" && opp.roi < minRoi) return false;
+          if (
+            bookWhitelist.length &&
+            !opp.legs?.some((l: any) =>
+              bookWhitelist.includes(l.book.toLowerCase())
+            )
+          )
+            return false;
+          return true;
+        })
+        .map((opp: any) => ({
+          ...opp,
+          roiPct: typeof opp.roi === "number" ? opp.roi * 100 : undefined,
+        }));
       const afterCount = mock.length;
       // Debug logging
-      console.log("[DEMO MODE] Filters:", { sports, marketTypes, minRoi, bookWhitelist });
-      console.log(`[DEMO MODE] Mock opportunities before filter: ${beforeCount}, after filter: ${afterCount}`);
-      const demoBookmakers = Array.from(new Set(
-        mock.flatMap((opp: { legs?: { book: string }[] }) => (opp.legs?.map((l) => l.book) ?? []))
-      )).sort();
+      console.log("[DEMO MODE] Filters:", {
+        sports,
+        marketTypes,
+        minRoi,
+        bookWhitelist,
+      });
+      console.log(
+        `[DEMO MODE] Mock opportunities before filter: ${beforeCount}, after filter: ${afterCount}`
+      );
+      const demoBookmakers = Array.from(
+        new Set(
+          mock.flatMap(
+            (opp: { legs?: { book: string }[] }) =>
+              opp.legs?.map((l) => l.book) ?? []
+          )
+        )
+      ).sort();
       const resp = {
         opportunities: mock,
         summary: {
@@ -118,14 +168,26 @@ export async function GET(request: Request) {
         },
         bookmakers: demoBookmakers,
       };
-      if (!skipCache) cache.set(cacheKey, { data: resp, expiry: Date.now() + CACHE_TTL_MS });
+      if (!skipCache)
+        cache.set(cacheKey, { data: resp, expiry: Date.now() + CACHE_TTL_MS });
       return NextResponse.json(resp);
     } catch (err) {
       console.error("[DEMO MODE] Error loading mock data:", err);
-      const fallbackMarkets = Array.isArray(marketTypes) && marketTypes.length ? marketTypes : ["ML"];
-  const resp = { opportunities: [], summary: { sports, markets: fallbackMarkets, minRoi, count: 0, demo: true } };
-  if (!skipCache) cache.set(cacheKey, { data: resp, expiry: Date.now() + CACHE_TTL_MS });
-  return NextResponse.json(resp, { status: 200 });
+      const fallbackMarkets =
+        Array.isArray(marketTypes) && marketTypes.length ? marketTypes : ["ML"];
+      const resp = {
+        opportunities: [],
+        summary: {
+          sports,
+          markets: fallbackMarkets,
+          minRoi,
+          count: 0,
+          demo: true,
+        },
+      };
+      if (!skipCache)
+        cache.set(cacheKey, { data: resp, expiry: Date.now() + CACHE_TTL_MS });
+      return NextResponse.json(resp, { status: 200 });
     }
   }
 
@@ -154,12 +216,15 @@ export async function GET(request: Request) {
     // Gather all odds for this event, flattening across all markets
     let legs: ArbLeg[] = [];
     for (const m of ev.markets) {
-  // ...existing code...
       // Filter odds by freshness and book whitelist
       const odds = m.odds.filter((o: any) => {
         const ageMs = now - new Date(o.lastSeenAt).getTime();
         if (ageMs > FRESH_MS) return false;
-        if (bookWhitelist.length && !bookWhitelist.includes(o.sportsbook.name.toLowerCase())) return false;
+        if (
+          bookWhitelist.length &&
+          !bookWhitelist.includes(o.sportsbook.name.toLowerCase())
+        )
+          return false;
         return true;
       });
       odds.forEach((o: any) => uniqueBooks.add(o.sportsbook.name));
@@ -171,18 +236,21 @@ export async function GET(request: Request) {
           market: m.type,
           outcome: o.outcome,
           decimal: o.decimal,
-          line: m.type === 'ML' ? undefined : (o.line == null ? undefined : o.line),
+          line:
+            m.type === "ML" ? undefined : o.line == null ? undefined : o.line,
         });
       }
     }
     // Only keep legs for allowed market types
-    legs = legs.filter(l => marketTypes.includes(l.market));
+    legs = legs.filter((l) => marketTypes.includes(l.market));
     // Find arbs for this event
-    const arbs = findTwoWayArbs(legs).filter(a => a.roi >= minRoi);
+    const arbs = findTwoWayArbs(legs).filter((a) => a.roi >= minRoi);
     for (const arb of arbs) {
       results.push({
         market: arb.market,
-        id: `${ev.id}-${arb.market}${arb.line !== undefined ? '-' + arb.line : ''}`,
+        id: `${ev.id}-${arb.market}${
+          arb.line !== undefined ? "-" + arb.line : ""
+        }`,
         sport: ev.sport,
         league: ev.league ?? ev.sport,
         startsAt: ev.startsAt.toISOString(),
@@ -200,9 +268,9 @@ export async function GET(request: Request) {
   const paged = results.slice(offset, offset + limit);
   // Summary counts by market kind (for all results, not just paged)
   const byMarket = {
-    ML: results.filter(r => r.market === 'ML').length,
-    SPREAD: results.filter(r => r.market === 'SPREAD').length,
-    TOTAL: results.filter(r => r.market === 'TOTAL').length,
+    ML: results.filter((r) => r.market === "ML").length,
+    SPREAD: results.filter((r) => r.market === "SPREAD").length,
+    TOTAL: results.filter((r) => r.market === "TOTAL").length,
   };
   const resp = {
     opportunities: paged,
@@ -220,6 +288,7 @@ export async function GET(request: Request) {
     },
     bookmakers: allBookmakers,
   };
-  if (!skipCache) cache.set(cacheKey, { data: resp, expiry: Date.now() + CACHE_TTL_MS });
+  if (!skipCache)
+    cache.set(cacheKey, { data: resp, expiry: Date.now() + CACHE_TTL_MS });
   return NextResponse.json(resp);
 }

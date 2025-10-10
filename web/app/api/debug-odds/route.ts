@@ -12,22 +12,27 @@ import { prisma } from "@/lib/db";
  * - max(lastSeenAt)
  * - a few sample Markets with their Odds + Sportsbook names
  */
+// Debug endpoint for odds DB. Returns counts, distinct types, and sample rows.
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  // Optional limit param for sample size
   const limit = Number(url.searchParams.get("limit") ?? "5");
 
+  // Aggregate counts for sanity checks
   const [eventCount, marketCount, oddsCount] = await Promise.all([
     prisma.event.count(),
     prisma.market.count(),
     prisma.odds.count(),
   ]);
 
+  // Get distinct market/outcome types and max lastSeenAt
   const [marketTypes, outcomeTypes, maxSeen] = await Promise.all([
     prisma.market.findMany({ select: { type: true }, distinct: ["type"] }),
     prisma.odds.findMany({ select: { outcome: true }, distinct: ["outcome"] }),
     prisma.odds.aggregate({ _max: { lastSeenAt: true } }),
   ]);
 
+  // Sample markets for UI/debug
   const sampleMarkets = await prisma.market.findMany({
     include: {
       event: true,
@@ -35,6 +40,7 @@ export async function GET(request: Request) {
     },
   });
 
+  // Shape response for quick inspection
   return NextResponse.json({
     counts: { eventCount, marketCount, oddsCount },
     distinct: {

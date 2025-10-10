@@ -3,11 +3,7 @@
  * - Takes normalized events (provider-agnostic shape)
  * - Ensures Event + Market("ML") + Sportsbook exist
  * - Upserts odds rows (unique by (marketId, sportsbookId, outcome))
- * - NEW: Skips DB writes when the event's best prices haven't changed (hash guard)
- *
- * Why this layer?
- * - Keeps database writes separate from "where data came from".
- * - If you change providers or add more, you don't touch DB logic.
+ * - Skips DB writes when the event's best prices haven't changed (hash guard)
  */
 
 import { createHash } from "crypto";
@@ -21,7 +17,12 @@ import type { NormalizedEvent } from "@/lib/oddsAdapters/theOddsApi";
  *  - same league & sport
  *  - exact start time (you can widen to a window if needed)
  */
-async function getOrCreateEventAndMarket(e: NormalizedEvent, marketType: 'ML' | 'SPREAD' | 'TOTAL') {
+async function getOrCreateEventAndMarket(
+  e: NormalizedEvent,
+  marketType: "ML" | "SPREAD" | "TOTAL"
+) {
+  // Finds or creates event/market for given event and market type
+
   // Try to find an existing event first:
   let event = await prisma.event.findFirst({
     where: {
@@ -66,17 +67,16 @@ async function getOrCreateEventAndMarket(e: NormalizedEvent, marketType: 'ML' | 
  */
 type UpsertLine = {
   book: string;
-  market: 'ML' | 'SPREAD' | 'TOTAL';
+  market: "ML" | "SPREAD" | "TOTAL";
   outcome: "A" | "B" | "OVER" | "UNDER";
   decimal: number;
   line?: number;
   providerUpdatedAt?: string;
 };
 
-async function upsertOddsBatch(
-  marketId: string,
-  lines: UpsertLine[]
-) {
+async function upsertOddsBatch(marketId: string, lines: UpsertLine[]) {
+  // Upserts batch of odds lines for a market, ensures sportsbook exists
+
   for (const line of lines) {
     // Ensure sportsbook exists
     const book = await prisma.sportsbook.upsert({
@@ -85,11 +85,13 @@ async function upsertOddsBatch(
       create: { name: line.book },
     });
 
-    const providerUpdatedAt = line.providerUpdatedAt ? new Date(line.providerUpdatedAt) : undefined;
+    const providerUpdatedAt = line.providerUpdatedAt
+      ? new Date(line.providerUpdatedAt)
+      : undefined;
 
     // ML: unique on (marketId, sportsbookId, outcome) where line is null
     // SPREAD/TOTAL: unique on (marketId, sportsbookId, outcome, line)
-    if (line.market === 'ML') {
+    if (line.market === "ML") {
       // Only update if decimal or providerUpdatedAt changed; always bump lastSeenAt
       await prisma.odds.upsert({
         where: {
@@ -147,12 +149,16 @@ async function upsertOddsBatch(
 
 /** Stable key for this event’s ML snapshot (does not depend on books present) */
 function fingerprintKey(e: NormalizedEvent, marketType: "ML" = "ML") {
+  // Stable key for event's ML snapshot
+
   // If you later store a provider id, you can add it here for even more stability.
   return `${e.teamA}@${e.teamB}:${e.startsAt}:${e.league}:${e.sport}:${marketType}`;
 }
 
 /** Hash only the *best* A and *best* B decimal prices (fast + robust) */
 function computeBestPriceHash(e: NormalizedEvent): string {
+  // Hashes best A/B prices for event
+
   let bestA = 0;
   let bestB = 0;
   for (const line of e.lines ?? []) {
@@ -173,6 +179,8 @@ function computeBestPriceHash(e: NormalizedEvent): string {
  *   3) Else write odds and upsert new fingerprint
  */
 export async function ingestNormalizedEvents(events: NormalizedEvent[]) {
+  // Top-level ingest: skips DB writes if fingerprint unchanged
+
   let eventsTouched = 0;
   let oddsWritten = 0;
 
@@ -204,12 +212,16 @@ export async function ingestNormalizedEvents(events: NormalizedEvent[]) {
     }
 
     // Group lines by market type
-    const linesByMarket: Record<'ML' | 'SPREAD' | 'TOTAL', UpsertLine[]> = { ML: [], SPREAD: [], TOTAL: [] };
+    const linesByMarket: Record<"ML" | "SPREAD" | "TOTAL", UpsertLine[]> = {
+      ML: [],
+      SPREAD: [],
+      TOTAL: [],
+    };
     for (const line of ev.lines) {
       linesByMarket[line.market].push(line);
     }
 
-    for (const marketType of (['ML', 'SPREAD', 'TOTAL'] as const)) {
+    for (const marketType of ["ML", "SPREAD", "TOTAL"] as const) {
       if (linesByMarket[marketType].length === 0) continue;
       const { market } = await getOrCreateEventAndMarket(ev, marketType);
       await upsertOddsBatch(market.id, linesByMarket[marketType]);

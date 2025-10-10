@@ -1,13 +1,8 @@
 import type { MarketKind } from "@/lib/arbitrage";
 // lib/oddsAdapters/theOddsApi.ts
 //
-// Adapter for The Odds API
-// - Handles HTTP requests and raw JSON shape from provider
-// - Normalizes events into provider-agnostic shape (NormalizedEvent)
-// - Supports optional commence_time filters to reduce API usage
-//
-// This file is isolated so that you can later add new providers
-// while keeping the rest of your ingest pipeline unchanged.
+// Adapter for The Odds API: fetches, normalizes, and maps provider odds to app shape.
+// - Contract: Normalizes events, supports commence_time filters, handles provider quirks.
 
 export type RawOddsApiEvent = {
   id: string;
@@ -17,12 +12,12 @@ export type RawOddsApiEvent = {
   home_team: string;
   away_team: string;
   bookmakers: Array<{
-    key: string;       // e.g., "draftkings"
-    title: string;     // e.g., "DraftKings"
+    key: string; // e.g., "draftkings"
+    title: string; // e.g., "DraftKings"
     markets: Array<{
-      key: string;     // e.g., "h2h", "spreads", "totals"
+      key: string; // e.g., "h2h", "spreads", "totals"
       outcomes: Array<{
-        name: string;  // team name or 'Over'/'Under'
+        name: string; // team name or 'Over'/'Under'
         price: number; // decimal odds
         point?: number; // always parse as number for spreads/totals
       }>;
@@ -38,27 +33,25 @@ export type RawOddsApiEvent = {
  */
 export type NormalizedLine = {
   book: string;
-  market: 'ML' | 'SPREAD' | 'TOTAL';
-  outcome: 'A' | 'B' | 'OVER' | 'UNDER';
+  market: "ML" | "SPREAD" | "TOTAL";
+  outcome: "A" | "B" | "OVER" | "UNDER";
   decimal: number;
   line?: number; // for SPREAD/TOTAL
   providerUpdatedAt?: string; // ISO timestamp from provider
 };
 
 export type NormalizedEvent = {
-  league: string;       // e.g., "NBA"
-  sport: string;        // e.g., "Basketball"
-  startsAt: string;     // ISO string
-  teamA: string;        // deterministic ordering: away = A
-  teamB: string;        // home = B
+  league: string; // e.g., "NBA"
+  sport: string; // e.g., "Basketball"
+  startsAt: string; // ISO string
+  teamA: string; // deterministic ordering: away = A
+  teamB: string; // home = B
   lines: NormalizedLine[];
 };
 
 /** Helper: capitalize + tidy strings */
 function titleCase(input: string): string {
-  return input
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+  return input.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 /**
@@ -67,7 +60,10 @@ function titleCase(input: string): string {
  *   "Basketball (NBA)" → { sport: "Basketball", league: "NBA" }
  *   "Baseball" → { sport: "Baseball", league: "Baseball" }
  */
-function splitSportTitle(sportTitle: string): { sport: string; league: string } {
+function splitSportTitle(sportTitle: string): {
+  sport: string;
+  league: string;
+} {
   const m = sportTitle.match(/^(.*?)\s*\((.*?)\)\s*$/);
   if (m) {
     return { sport: m[1].trim(), league: m[2].trim() };
@@ -78,7 +74,8 @@ function splitSportTitle(sportTitle: string): { sport: string; league: string } 
 /** Ensure format "YYYY-MM-DDTHH:MM:SSZ" (drop milliseconds) */
 function toIsoSeconds(input: string | Date): string {
   const d = typeof input === "string" ? new Date(input) : input;
-  if (!(d instanceof Date) || Number.isNaN(d.getTime())) throw new Error("Invalid date");
+  if (!(d instanceof Date) || Number.isNaN(d.getTime()))
+    throw new Error("Invalid date");
   return d.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
@@ -104,14 +101,19 @@ export async function fetchTheOddsApi(options?: {
   bookmakers?: string[];
 }): Promise<NormalizedEvent[]> {
   const apiKey = options?.apiKey ?? process.env.ODDS_API_KEY!;
-  const sport  = options?.sport  ?? process.env.ODDS_API_SPORT ?? "basketball_nba";
+  const sport =
+    options?.sport ?? process.env.ODDS_API_SPORT ?? "basketball_nba";
   const region = options?.region ?? process.env.ODDS_API_REGION ?? "us";
 
   // Map MarketKind[] to API keys
-  const marketMap: Record<MarketKind, string> = { ML: "h2h", SPREAD: "spreads", TOTAL: "totals" };
+  const marketMap: Record<MarketKind, string> = {
+    ML: "h2h",
+    SPREAD: "spreads",
+    TOTAL: "totals",
+  };
   let apiMarkets: string;
   if (options?.markets && options.markets.length) {
-    apiMarkets = options.markets.map(m => marketMap[m]).join(",");
+    apiMarkets = options.markets.map((m) => marketMap[m]).join(",");
   } else {
     apiMarkets = "h2h";
   }
@@ -122,7 +124,6 @@ export async function fetchTheOddsApi(options?: {
   url.searchParams.set("oddsFormat", "decimal");
   url.searchParams.set("dateFormat", "iso");
 
-  // ✅ Canonicalize to "YYYY-MM-DDTHH:MM:SSZ" (no milliseconds)
   if (options?.commenceTimeFrom) {
     const from = toIsoSeconds(options.commenceTimeFrom);
     url.searchParams.set("commenceTimeFrom", from);
@@ -142,7 +143,9 @@ export async function fetchTheOddsApi(options?: {
   const res = await fetch(url.toString(), { method: "GET" });
   if (!res.ok) {
     const text = await res.text();
-    const err = new Error(`TheOddsAPI error ${res.status}: ${text}`) as Error & { status?: number };
+    const err = new Error(
+      `TheOddsAPI error ${res.status}: ${text}`
+    ) as Error & { status?: number };
     err.status = res.status;
     throw err;
   }
@@ -151,11 +154,13 @@ export async function fetchTheOddsApi(options?: {
   const normalized: NormalizedEvent[] = [];
 
   for (const ev of raw) {
-    const { league } = splitSportTitle(ev.sport_title || titleCase(ev.sport_key));
-  const sport = ev.sport_key;
-  // Deterministic ordering: away = A, home = B
-  const teamA = ev.away_team.trim();
-  const teamB = ev.home_team.trim();
+    const { league } = splitSportTitle(
+      ev.sport_title || titleCase(ev.sport_key)
+    );
+    const sport = ev.sport_key;
+    // Deterministic ordering: away = A, home = B
+    const teamA = ev.away_team.trim();
+    const teamB = ev.home_team.trim();
 
     const lines: NormalizedLine[] = [];
 
@@ -172,9 +177,21 @@ export async function fetchTheOddsApi(options?: {
         for (const out of ml.outcomes ?? []) {
           const name = (out.name || "").trim();
           if (name === teamA) {
-            lines.push({ book: book.title || book.key, market: 'ML', outcome: "A", decimal: out.price, providerUpdatedAt });
+            lines.push({
+              book: book.title || book.key,
+              market: "ML",
+              outcome: "A",
+              decimal: out.price,
+              providerUpdatedAt,
+            });
           } else if (name === teamB) {
-            lines.push({ book: book.title || book.key, market: 'ML', outcome: "B", decimal: out.price, providerUpdatedAt });
+            lines.push({
+              book: book.title || book.key,
+              market: "ML",
+              outcome: "B",
+              decimal: out.price,
+              providerUpdatedAt,
+            });
           }
         }
       }
@@ -184,11 +201,26 @@ export async function fetchTheOddsApi(options?: {
       if (spreads) {
         for (const out of spreads.outcomes ?? []) {
           const name = (out.name || "").trim();
-          const point = typeof out.point === 'number' ? out.point : Number(out.point);
+          const point =
+            typeof out.point === "number" ? out.point : Number(out.point);
           if (name === teamA) {
-            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "A", decimal: out.price, line: point, providerUpdatedAt });
+            lines.push({
+              book: book.title || book.key,
+              market: "SPREAD",
+              outcome: "A",
+              decimal: out.price,
+              line: point,
+              providerUpdatedAt,
+            });
           } else if (name === teamB) {
-            lines.push({ book: book.title || book.key, market: 'SPREAD', outcome: "B", decimal: out.price, line: point, providerUpdatedAt });
+            lines.push({
+              book: book.title || book.key,
+              market: "SPREAD",
+              outcome: "B",
+              decimal: out.price,
+              line: point,
+              providerUpdatedAt,
+            });
           }
         }
       }
@@ -198,11 +230,26 @@ export async function fetchTheOddsApi(options?: {
       if (totals) {
         for (const out of totals.outcomes ?? []) {
           const name = (out.name || "").trim().toLowerCase();
-          const point = typeof out.point === 'number' ? out.point : Number(out.point);
+          const point =
+            typeof out.point === "number" ? out.point : Number(out.point);
           if (name === "over") {
-            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "OVER", decimal: out.price, line: point, providerUpdatedAt });
+            lines.push({
+              book: book.title || book.key,
+              market: "TOTAL",
+              outcome: "OVER",
+              decimal: out.price,
+              line: point,
+              providerUpdatedAt,
+            });
           } else if (name === "under") {
-            lines.push({ book: book.title || book.key, market: 'TOTAL', outcome: "UNDER", decimal: out.price, line: point, providerUpdatedAt });
+            lines.push({
+              book: book.title || book.key,
+              market: "TOTAL",
+              outcome: "UNDER",
+              decimal: out.price,
+              line: point,
+              providerUpdatedAt,
+            });
           }
         }
       }

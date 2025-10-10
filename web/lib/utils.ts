@@ -1,5 +1,9 @@
+// Utility functions: time formatting, classnames, CSV parsing, number coercion.
+// - Contract: Defensive against invalid input, dedupes, merges, and formats.
+
 // Returns a human-readable time difference (e.g., "just now", "2m ago", "1h 4m ago"). Returns "—" if input is falsy or invalid.
 export function timeAgo(iso?: string): string {
+  // Human-readable time difference, returns "—" for invalid input
   if (!iso) return "—";
   const date = new Date(iso);
   if (!(date instanceof Date) || isNaN(date.getTime())) return "—";
@@ -21,15 +25,28 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
+  // Merges Tailwind/classnames, dedupes
   return twMerge(clsx(inputs));
 }
 
 export function parseCSV(q?: string): string[] {
+  // Parses CSV string, trims, dedupes
   if (!q) return [];
-  return Array.from(new Set(q.split(",").map((s) => s.trim()).filter(Boolean)));
+  return Array.from(
+    new Set(
+      q
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+  );
 }
 
-export function coerceNumber(q: string | null | undefined, def: number): number {
+export function coerceNumber(
+  q: string | null | undefined,
+  def: number
+): number {
+  // Coerces string to number, falls back to default
   const n = Number(q);
   return isFinite(n) ? n : def;
 }

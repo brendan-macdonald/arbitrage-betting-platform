@@ -1,21 +1,19 @@
 /**
- * Seed script: inserts:
- * - 2 sportsbooks
- * - 1 event with 1 Moneyline market
- * - Odds that GUARANTEE arbitrage (2.10 / 2.10) so the UI shows a card
+ * Seed script: inserts demo sportsbooks, event, market, and guaranteed arbitrage odds.
+ * - Contract: Idempotent, ensures UI always shows a card.
  */
 
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  // 1) Ensure sportsbooks exist (createMany is idempotent with skipDuplicates)
+  // Ensure sportsbooks exist (idempotent)
   await prisma.sportsbook.createMany({
     data: [{ name: "FanDuel" }, { name: "DraftKings" }],
     skipDuplicates: true,
   });
 
-  // 2) Create one event with a Moneyline market ("ML")
+  // Create one event with a Moneyline market
   const ev = await prisma.event.create({
     data: {
       sport: "NBA",
@@ -32,17 +30,18 @@ async function main() {
 
   const market = ev.markets[0];
 
-  // 3) Look up the two books to get their IDs
+  // Look up the two books to get their IDs
   const fd = await prisma.sportsbook.findUnique({ where: { name: "FanDuel" } });
-  const dk = await prisma.sportsbook.findUnique({ where: { name: "DraftKings" } });
+  const dk = await prisma.sportsbook.findUnique({
+    where: { name: "DraftKings" },
+  });
   if (!fd || !dk) throw new Error("books not found after createMany");
 
-  // 4) Insert odds that guarantee arbitrage:
-  // 2.10 on A and 2.10 on B → 1/2.1 + 1/2.1 = 0.952 < 1 → ~4.76% ROI
+  // Insert odds that guarantee arbitrage (2.10/2.10)
   await prisma.odds.createMany({
     data: [
-      { marketId: market.id, sportsbookId: fd.id, outcome: "A", decimal: 2.10 },
-      { marketId: market.id, sportsbookId: dk.id, outcome: "B", decimal: 2.10 },
+      { marketId: market.id, sportsbookId: fd.id, outcome: "A", decimal: 2.1 },
+      { marketId: market.id, sportsbookId: dk.id, outcome: "B", decimal: 2.1 },
     ],
     skipDuplicates: true,
   });

@@ -1,4 +1,3 @@
-// High-volume sports for this week (Sep 22, 2025)
 export const SPORTS = [
   "americanfootball_nfl",
   "americanfootball_ncaaf",
