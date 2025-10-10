@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   // Parse filters
   const allBooks = await prisma.sportsbook.findMany({ select: { name: true } });
   const allBookmakers = allBooks.map(b => b.name).sort();
-  const url = new URL(request.url);
+  // const url = new URL(request.url); // Already declared above
   const useDemo = url.searchParams.get("demo") === "1";
   // If minRoi is not provided, default to 0.0001 (0.01%) in demo mode, else 0.01 (1%)
   const rawFreshMins = url.searchParams.get("freshMins");
